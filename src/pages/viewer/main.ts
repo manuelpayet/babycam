@@ -3,7 +3,7 @@ import { applyTranslations, initLangSelect, t } from '../../shared/i18n';
 import { createChunkCollector, decodeMessage, encodeMessage, toQrChunks, type SignalMessage } from '../../shared/signaling';
 import { QrScanner } from '../../shared/scanner';
 import { QrCarousel, qs } from '../../shared/ui';
-import { iceServersFromLocation, ViewerPeer } from '../../shared/webrtc';
+import { iceServersFromLocation, ViewerPeer, type DataMessage } from '../../shared/webrtc';
 
 applyTranslations();
 const langSelect = document.querySelector<HTMLSelectElement>('#lang-select');
@@ -29,6 +29,7 @@ function setStatus(text: string): void {
 
 let peer: ViewerPeer | null = null;
 let answerCarousel: QrCarousel | null = null;
+const dataLog: DataMessage[] = [];
 
 const collector = createChunkCollector();
 
@@ -61,8 +62,8 @@ async function applyOffer(): Promise<void> {
     remote.muted = true;
     void remote.play().catch(() => undefined);
   };
-  peer.onData = () => {
-    // v2 : alertes bruit/mouvement affichées ici
+  peer.onData = (m) => {
+    dataLog.push(m);
   };
   peer.onState = (state) => {
     if (state === 'connected') setStatus(t('viewer.status.connected'));
@@ -97,5 +98,6 @@ setStatus(t('viewer.status.idle'));
 if (new URLSearchParams(location.search).get('debug') === '1') {
   (window as unknown as Record<string, unknown>).__babycam = {
     getPeerState: () => peer?.pc?.connectionState ?? null,
+    getDataLog: () => dataLog,
   };
 }

@@ -3,7 +3,8 @@ import { applyTranslations, initLangSelect, t } from '../../shared/i18n';
 import { WakeLockManager } from '../../shared/wakelock';
 import { decodeMessage, encodeMessage, toQrChunks } from '../../shared/signaling';
 import { QrCarousel, qs } from '../../shared/ui';
-import { CameraPeers, iceServersFromLocation } from '../../shared/webrtc';
+import { CameraPeers, iceServersFromLocation, type AlertKind } from '../../shared/webrtc';
+import { NoiseDetector } from '../../shared/detection/noise';
 
 applyTranslations();
 const langSelect = document.querySelector<HTMLSelectElement>('#lang-select');
@@ -44,12 +45,20 @@ async function start(): Promise<void> {
   preview.srcObject = stream;
   await preview.play().catch(() => undefined);
   await wakeLock.request();
+  noiseDet = new NoiseDetector(stream, {
+    threshold: Number(noiseThreshold.value),
+    onTrigger: (dbfs) => onAlert('noise', Math.round(dbfs)),
+    onLevel: (dbfs) => peers?.sendToAll({ type: 'level', dbfs: Math.round(dbfs) }),
+  });
+  noiseDet.start();
   setStatusKey('camera.status.running');
   startBtn.disabled = true;
   stopBtn.disabled = false;
 }
 
 function stop(): void {
+  noiseDet?.stop();
+  noiseDet = null;
   stream?.getTracks().forEach((track) => track.stop());
   stream = null;
   preview.srcObject = null;
@@ -82,6 +91,29 @@ torchBtn.addEventListener('click', () => {
 
 stopBtn.disabled = true;
 setStatusKey('camera.status.idle');
+
+const noiseThreshold = qs<HTMLInputElement>('#noise-threshold');
+const flash = qs<HTMLDivElement>('#flash');
+const NOISE_KEY = 'babycam.noiseThreshold';
+noiseThreshold.value = localStorage.getItem(NOISE_KEY) ?? '70';
+let noiseDet: NoiseDetector | null = null;
+
+function onAlert(kind: AlertKind, level: number): void {
+  peers?.sendToAll({ type: 'alert', kind, level, ts: Date.now() });
+  flash.hidden = false;
+  flash.classList.remove('on');
+  void flash.offsetWidth;
+  flash.classList.add('on');
+  setTimeout(() => {
+    flash.hidden = true;
+  }, 600);
+  void wakeLock.onVisible();
+}
+
+noiseThreshold.addEventListener('input', () => {
+  localStorage.setItem(NOISE_KEY, noiseThreshold.value);
+  if (noiseDet) noiseDet.threshold = Number(noiseThreshold.value);
+});
 
 const pairBtn = qs<HTMLButtonElement>('#pair-btn');
 const qrBox = qs<HTMLDivElement>('#qr-box');
