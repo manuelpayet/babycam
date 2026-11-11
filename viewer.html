@@ -19,6 +19,7 @@
         </select>
       </header>
       <p id="status" class="status" data-i18n="viewer.status.idle">Non appairé</p>
+      <div id="alert-banner" hidden></div>
       <video id="remote" autoplay playsinline></video>
       <div class="controls">
         <button id="unmute-btn" class="btn" data-i18n="viewer.unmute">Activer le son</button>
@@ -39,6 +40,10 @@
           <label class="hint" data-i18n="viewer.answerLabel">Réponse à montrer à la caméra (QR ou copier) :</label>
           <textarea id="answer-payload" readonly></textarea>
         </div>
+      </section>
+      <section id="alerts">
+        <h2 data-i18n="viewer.alerts">Alertes</h2>
+        <ul id="alert-history"></ul>
       </section>
     </main>
     <script type="module" src="./src/pages/viewer/main.ts"></script>

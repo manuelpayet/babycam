@@ -4,6 +4,7 @@ import { createChunkCollector, decodeMessage, encodeMessage, toQrChunks, type Si
 import { QrScanner } from '../../shared/scanner';
 import { QrCarousel, qs } from '../../shared/ui';
 import { iceServersFromLocation, ViewerPeer, type DataMessage } from '../../shared/webrtc';
+import { playAlertSound, pushAlertHistory, showAlertBanner, vibrate } from '../../shared/alerts';
 
 applyTranslations();
 const langSelect = document.querySelector<HTMLSelectElement>('#lang-select');
@@ -22,6 +23,8 @@ const qrCanvasAnswer = qs<HTMLCanvasElement>('#qr-canvas-answer');
 const qrPosAnswer = qs<HTMLSpanElement>('#qr-pos-answer');
 const answerPayload = qs<HTMLTextAreaElement>('#answer-payload');
 const viewerName = qs<HTMLInputElement>('#viewer-name');
+const alertBanner = qs<HTMLDivElement>('#alert-banner');
+const alertHistory = qs<HTMLUListElement>('#alert-history');
 
 function setStatus(text: string): void {
   status.textContent = text;
@@ -64,6 +67,12 @@ async function applyOffer(): Promise<void> {
   };
   peer.onData = (m) => {
     dataLog.push(m);
+    if (m.type === 'alert') {
+      showAlertBanner(alertBanner, m.kind);
+      playAlertSound();
+      vibrate();
+      pushAlertHistory(alertHistory, m.kind, m.ts);
+    }
   };
   peer.onState = (state) => {
     if (state === 'connected') setStatus(t('viewer.status.connected'));
