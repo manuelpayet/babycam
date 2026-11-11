@@ -2,7 +2,8 @@ import '../../shared/style.css';
 import { applyTranslations, initLangSelect, t } from '../../shared/i18n';
 import { WakeLockManager } from '../../shared/wakelock';
 import { createChunkCollector, decodeMessage, encodeMessage, encodeRoom, toQrChunks } from '../../shared/signaling';
-import { QrCarousel, qs } from '../../shared/ui';
+import { QrCarousel, qs, setBuildBadge } from '../../shared/ui';
+import { registerPwa } from '../../shared/pwa';
 import { QrScanner } from '../../shared/scanner';
 import { CameraPeers, iceServersFromLocation, type AlertKind } from '../../shared/webrtc';
 import { NoiseDetector } from '../../shared/detection/noise';
@@ -13,6 +14,8 @@ import type { SignalMessage } from '../../shared/signaling';
 applyTranslations();
 const langSelect = document.querySelector<HTMLSelectElement>('#lang-select');
 if (langSelect) initLangSelect(langSelect);
+registerPwa();
+setBuildBadge();
 
 const preview = qs<HTMLVideoElement>('#preview');
 const status = qs<HTMLParagraphElement>('#status');

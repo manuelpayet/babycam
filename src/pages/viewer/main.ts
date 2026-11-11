@@ -2,7 +2,9 @@ import '../../shared/style.css';
 import { applyTranslations, initLangSelect, t } from '../../shared/i18n';
 import { createChunkCollector, decodeMessage, decodeRoom, encodeMessage, toQrChunks, type SignalMessage } from '../../shared/signaling';
 import { QrScanner } from '../../shared/scanner';
-import { QrCarousel, qs } from '../../shared/ui';
+import { QrCarousel, qs, setBuildBadge } from '../../shared/ui';
+import { registerPwa } from '../../shared/pwa';
+import { mungeSdpAggressive, videoMimeFromSdp } from '../../shared/sdp';
 import { iceServersFromLocation, ViewerPeer, type DataMessage } from '../../shared/webrtc';
 import { playAlertSound, pushAlertHistory, showAlertBanner, vibrate } from '../../shared/alerts';
 import { RelayClient, relayUrlFromLocation } from '../../shared/relay';
@@ -10,6 +12,8 @@ import { RelayClient, relayUrlFromLocation } from '../../shared/relay';
 applyTranslations();
 const langSelect = document.querySelector<HTMLSelectElement>('#lang-select');
 if (langSelect) initLangSelect(langSelect);
+registerPwa();
+setBuildBadge();
 
 const status = qs<HTMLParagraphElement>('#status');
 const remote = qs<HTMLVideoElement>('#remote');
@@ -127,7 +131,8 @@ async function applyOffer(): Promise<void> {
   peer = makePeer([]);
   try {
     const answer = await peer.acceptOffer(msg);
-    const message = encodeMessage(answer);
+    const slim = { ...answer, sdp: mungeSdpAggressive(answer.sdp, videoMimeFromSdp(msg.sdp)) };
+    const message = encodeMessage(slim);
     answerPayload.value = message;
     qrBoxAnswer.hidden = false;
     answerCarousel?.stop();
