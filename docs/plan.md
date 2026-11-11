@@ -213,7 +213,8 @@ Chaque incrément est petit, testé (unitaires vitest, plus E2E Playwright quand
 - I2.4 : seconde méthode d'appairage — relais + code de salon (`relay/` Worker + `relay.ts` client : présence, échange SDP) ; tests unitaires + E2E avec relais local (`wrangler dev` ou mock WebSocket dans le test) → commit.
 
 ### Phase 3 — optionnel
-Notifications push (hors 100 % statique), enregistrement d'extraits sur alerte, audio bidirectionnel, zone d'intérêt pour le mouvement.
+- I3.1 : **reconnexion automatique** — `restartIce()` + ré-offre côté caméra (via relais auto, ou QR à re-scanner), reconnexion WS du relais avec backoff + re-join + ré-annonce de présence, re-request viewer sur `disconnected`/`failed` ; E2E : coupure réseau simulée (`setOffline`) et redémarrage du relais.
+- Notifications push (hors 100 % statique), enregistrement d'extraits sur alerte, audio bidirectionnel, zone d'intérêt pour le mouvement.
 
 ## 14. Tests
 

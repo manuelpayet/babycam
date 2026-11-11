@@ -1,55 +1,10 @@
-import type { AddressInfo } from 'node:net';
 import { expect, test } from '@playwright/test';
-import { WebSocketServer, type WebSocket } from 'ws';
+import { killMockRelay, startMockRelay } from './mock-relay';
 import { shot } from './helpers';
 
-interface RelayClientInfo {
-  id: string;
-  role: string;
-  name: string;
-}
-
-function startMockRelay(): Promise<{ wss: WebSocketServer; url: string }> {
-  return new Promise((resolve) => {
-    const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' });
-    const clients = new Map<WebSocket, RelayClientInfo>();
-    const broadcast = () => {
-      const cameras = [...clients.values()]
-        .filter((c) => c.role === 'camera')
-        .map((c) => ({ id: c.id, name: c.name, ts: Date.now() }));
-      const text = JSON.stringify({ type: 'presence', cameras });
-      for (const sock of clients.keys()) sock.send(text);
-    };
-    wss.on('connection', (ws) => {
-      ws.on('message', (data) => {
-        const m = JSON.parse(data.toString()) as Record<string, unknown>;
-        const c = clients.get(ws);
-        if (m.type === 'join') {
-          const client: RelayClientInfo = { id: crypto.randomUUID(), role: m.role as string, name: String(m.name) };
-          clients.set(ws, client);
-          ws.send(JSON.stringify({ type: 'welcome', id: client.id }));
-          broadcast();
-        } else if (c && ['request', 'signal', 'candidate'].includes(m.type as string)) {
-          for (const [sock, cl] of clients) {
-            if (cl.id === m.to) sock.send(JSON.stringify({ ...m, from: c.id }));
-          }
-        }
-      });
-      ws.on('close', () => {
-        clients.delete(ws);
-        broadcast();
-      });
-    });
-    wss.on('listening', () => {
-      const addr = wss.address() as AddressInfo;
-      resolve({ wss, url: `ws://127.0.0.1:${addr.port}` });
-    });
-  });
-}
-
 test('découverte par salon : la caméra publie sa présence, le viewer rejoint et reçoit le flux', async ({ browser }) => {
-  const { wss, url } = await startMockRelay();
-  const relayParam = encodeURIComponent(url);
+  const relay = await startMockRelay();
+  const relayParam = encodeURIComponent(relay.url);
 
   const camCtx = await browser.newContext();
   const viewCtx = await browser.newContext();
@@ -88,5 +43,5 @@ test('découverte par salon : la caméra publie sa présence, le viewer rejoint 
 
   await camCtx.close();
   await viewCtx.close();
-  wss.close();
+  await killMockRelay(relay);
 });

@@ -64,10 +64,12 @@ interface PeerEntry {
 export interface PeerManagerOptions {
   trickle?: boolean;
   onCandidate?: (peerId: string, candidate: RTCIceCandidateInit) => void;
+  onRenegotiate?: (peerId: string, msg: SignalMessage) => void;
 }
 
 export class CameraPeers {
   private peers = new Map<string, PeerEntry>();
+  private lastRegen = new Map<string, number>();
   onPeerChange?: () => void;
 
   constructor(
@@ -100,11 +102,26 @@ export class CameraPeers {
         // message ignoré
       }
     };
-    pc.onconnectionstatechange = () => this.onPeerChange?.();
+    pc.onconnectionstatechange = () => {
+      this.onPeerChange?.();
+      if (pc.connectionState === 'failed') void this.renegotiate(id).catch(() => undefined);
+    };
     for (const track of this.stream.getTracks()) pc.addTrack(track, this.stream);
     await pc.setLocalDescription(await pc.createOffer());
     if (!this.opts.trickle) await waitIceComplete(pc, 4000);
     return { id, msg: { v: 1, t: 'offer', sdp: pc.localDescription!.sdp } };
+  }
+
+  private async renegotiate(id: string): Promise<void> {
+    const entry = this.peers.get(id);
+    if (!entry || !this.opts.onRenegotiate) return;
+    const now = performance.now();
+    if (now - (this.lastRegen.get(id) ?? 0) < 5000) return;
+    this.lastRegen.set(id, now);
+    entry.pc.restartIce();
+    await entry.pc.setLocalDescription(await entry.pc.createOffer());
+    await waitIceComplete(entry.pc, 4000);
+    this.opts.onRenegotiate(id, { v: 1, t: 'offer', sdp: entry.pc.localDescription!.sdp });
   }
 
   async acceptAnswer(id: string, msg: SignalMessage): Promise<void> {
@@ -173,6 +190,14 @@ export class ViewerPeer {
       };
     };
     this.pc.onconnectionstatechange = () => this.onState?.(this.pc?.connectionState ?? 'new');
+    await this.pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
+    await this.pc.setLocalDescription(await this.pc.createAnswer());
+    if (!this.trickle) await waitIceComplete(this.pc, 4000);
+    return { v: 1, t: 'answer', sdp: this.pc.localDescription!.sdp };
+  }
+
+  async renegotiate(msg: SignalMessage): Promise<SignalMessage> {
+    if (!this.pc) throw new Error('no peer connection');
     await this.pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
     await this.pc.setLocalDescription(await this.pc.createAnswer());
     if (!this.trickle) await waitIceComplete(this.pc, 4000);
