@@ -29,6 +29,7 @@
       <p id="wakelock-status" class="hint"></p>
       <section id="pairing">
         <h2 data-i18n="camera.pairing">Appairage</h2>
+        <p class="hint" data-i18n="camera.pair.steps">1. « Appairer » affiche un QR → scanne-le depuis le viewer. 2. Le viewer affiche un QR de réponse → « Scanner la réponse » ici (caméra frontale).</p>
         <button id="pair-btn" class="btn" data-i18n="camera.pair.btn">Appairer un viewer (QR)</button>
         <div id="qr-box" hidden>
           <canvas id="qr-canvas" width="280" height="280"></canvas>
@@ -36,8 +37,10 @@
           <label class="hint" data-i18n="camera.pair.offerLabel">Offre (QR ou copier-coller) :</label>
           <textarea id="offer-payload" readonly></textarea>
         </div>
-        <div id="answer-box">
-          <label class="hint" data-i18n="camera.pair.answerLabel">Réponse du viewer (coller ici) :</label>
+        <div id="answer-box" hidden>
+          <button id="scan-answer-btn" class="btn btn-primary" data-i18n="camera.scanAnswer">Scanner la réponse (caméra frontale)</button>
+          <div id="qr-reader-answer" hidden></div>
+          <label class="hint" data-i18n="camera.pair.answerLabel">Réponse du viewer (copier-coller en secours) :</label>
           <textarea id="answer-payload"></textarea>
           <button id="apply-answer-btn" class="btn" data-i18n="camera.pair.applyAnswer">Connecter</button>
         </div>

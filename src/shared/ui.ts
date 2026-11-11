@@ -28,7 +28,12 @@ export class QrCarousel {
   }
 
   private async show(): Promise<void> {
-    await renderQr(this.canvas, this.chunks[this.index]);
+    try {
+      await renderQr(this.canvas, this.chunks[this.index]);
+    } catch {
+      this.pos.textContent = 'QR trop dense : utiliser le copier-coller ci-dessous';
+      return;
+    }
     this.pos.textContent = this.chunks.length > 1 ? `${this.index + 1}/${this.chunks.length}` : '';
     this.index = (this.index + 1) % this.chunks.length;
   }

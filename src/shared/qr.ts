@@ -4,7 +4,7 @@ export async function renderQr(canvas: HTMLCanvasElement, text: string): Promise
   await QRCode.toCanvas(canvas, text, {
     errorCorrectionLevel: 'L',
     margin: 1,
-    width: 280,
+    width: 880,
     color: { dark: '#1e1b4b', light: '#ffffff' },
   });
 }

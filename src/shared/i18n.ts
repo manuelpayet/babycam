@@ -56,6 +56,8 @@ export const DICTS: Record<Lang, Record<string, string>> = {
     'viewer.status.lost': 'Connexion perdue',
     'viewer.status.reconnecting': 'Reconnexion en cours…',
     'viewer.alerts': 'Alertes',
+    'camera.pair.steps': '1. « Appairer » affiche un QR → scanne-le depuis le viewer. 2. Le viewer affiche un QR de réponse → « Scanner la réponse » ici (caméra frontale).',
+    'camera.scanAnswer': 'Scanner la réponse (caméra frontale)',
     'camera.pair.reconnect': 'Reconnexion : re-scanner le QR si demandé',
   },
   en: {
@@ -110,6 +112,8 @@ export const DICTS: Record<Lang, Record<string, string>> = {
     'viewer.status.lost': 'Connection lost',
     'viewer.status.reconnecting': 'Reconnecting…',
     'viewer.alerts': 'Alerts',
+    'camera.pair.steps': '1. "Pair" shows a QR → scan it from the viewer. 2. The viewer shows an answer QR → "Scan answer" here (front camera).',
+    'camera.scanAnswer': 'Scan answer (front camera)',
     'camera.pair.reconnect': 'Reconnecting: re-scan the QR if asked',
   },
 };

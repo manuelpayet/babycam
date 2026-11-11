@@ -8,7 +8,9 @@ export interface SignalMessage {
   sdp: string;
 }
 
-export const QR_CHUNK_SIZE = 800;
+// Capacité max d'un QR version 40-L en mode alphanumérique : 4296 caractères.
+// On reste sous cette limite pour tenir dans UN seul QR quand c'est possible (réseau local, SDP compact).
+export const QR_CHUNK_SIZE = 4200;
 
 function toBase64Url(bytes: Uint8Array): string {
   let bin = '';

@@ -136,6 +136,15 @@ input[type='range'] {
   width: 100%;
 }
 
+#qr-canvas,
+#qr-canvas-answer {
+  width: min(300px, 100%);
+  height: auto;
+  image-rendering: pixelated;
+  background: #fff;
+  border-radius: 0.5rem;
+}
+
 #flash {
   position: fixed;
   inset: 0;

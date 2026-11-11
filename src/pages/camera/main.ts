@@ -1,8 +1,9 @@
 import '../../shared/style.css';
 import { applyTranslations, initLangSelect, t } from '../../shared/i18n';
 import { WakeLockManager } from '../../shared/wakelock';
-import { decodeMessage, encodeMessage, toQrChunks } from '../../shared/signaling';
+import { createChunkCollector, decodeMessage, encodeMessage, toQrChunks } from '../../shared/signaling';
 import { QrCarousel, qs } from '../../shared/ui';
+import { QrScanner } from '../../shared/scanner';
 import { CameraPeers, iceServersFromLocation, type AlertKind } from '../../shared/webrtc';
 import { NoiseDetector } from '../../shared/detection/noise';
 import { MotionDetector } from '../../shared/detection/motion';
@@ -162,9 +163,9 @@ function renderViewers(): void {
   }
 }
 
-function ensurePeers(): CameraPeers {
+function ensurePeers(iceServers: RTCIceServer[]): CameraPeers {
   if (!peers) {
-    peers = new CameraPeers(stream!, iceServersFromLocation(), {
+    peers = new CameraPeers(stream!, iceServers, {
       onRenegotiate: (id, msg) => {
         const from = relayFromByPeer.get(id);
         if (relay && from) {
@@ -190,18 +191,23 @@ pairBtn.addEventListener('click', async () => {
     setStatusKey('camera.needStream');
     return;
   }
-  const { id, msg } = await ensurePeers().createOffer();
+  const { id, msg } = await ensurePeers([]).createOffer();
   pendingPeerId = id;
   const message = encodeMessage(msg);
   offerPayload.value = message;
   qrBox.hidden = false;
+  answerBox.hidden = false;
   carousel?.stop();
   carousel = new QrCarousel(qrCanvas, qrPos, toQrChunks(message));
   await carousel.start();
   setStatusKey('camera.pair.waiting');
 });
 
-applyAnswerBtn.addEventListener('click', async () => {
+const answerBox = qs<HTMLDivElement>('#answer-box');
+const scanAnswerBtn = qs<HTMLButtonElement>('#scan-answer-btn');
+const qrReaderAnswer = qs<HTMLDivElement>('#qr-reader-answer');
+
+async function applyAnswer(): Promise<void> {
   if (!peers || !pendingPeerId) return;
   try {
     const msg = decodeMessage(answerPayload.value);
@@ -211,6 +217,24 @@ applyAnswerBtn.addEventListener('click', async () => {
   } catch (err) {
     setStatus(String(err));
   }
+}
+
+applyAnswerBtn.addEventListener('click', () => void applyAnswer());
+
+let answerCollector = createChunkCollector();
+const answerScanner = new QrScanner('qr-reader-answer', (text) => {
+  const full = answerCollector.add(text) ?? (text.startsWith('BCAM1:') ? text : null);
+  if (!full) return;
+  void answerScanner.stop();
+  qrReaderAnswer.hidden = true;
+  answerPayload.value = full;
+  void applyAnswer();
+});
+
+scanAnswerBtn.addEventListener('click', () => {
+  answerCollector = createChunkCollector();
+  qrReaderAnswer.hidden = false;
+  answerScanner.start('user').catch((err: unknown) => setStatus(String(err)));
 });
 
 const relayParam = new URLSearchParams(location.search).get('relay');
@@ -229,7 +253,7 @@ createRoomBtn.addEventListener('click', async () => {
     setStatusKey('camera.relayNeeded');
     return;
   }
-  ensurePeers();
+  ensurePeers(iceServersFromLocation());
   relay = new RelayClient(relayParam);
   const room = newRoomCode();
   try {
