@@ -39,6 +39,7 @@ Page d'accueil (`/`) : choix « Je surveille » (caméra) ou « Je regarde » (v
 | Écran caméra | Wake Lock actif pendant la surveillance |
 | Langues de l'UI | Français + anglais (i18n) |
 | Livrable immédiat | Ce plan détaillé, sans code |
+| Méthodologie | Incréments testés (unitaires vitest + E2E Playwright quand pertinent), **un commit par incrément**, CI verte à chaque commit (§13-§14) |
 
 ## 4. Architecture générale
 
@@ -169,8 +170,11 @@ babycam/
 ├── relay/                      # v2 : mini relais WebSocket (Cloudflare Worker + Durable Object)
 │   ├── src/index.ts
 │   └── wrangler.toml
+├── playwright.config.ts
+├── e2e/                        # tests E2E Playwright (caméra/viewer, appairage, alertes, PWA)
 ├── vite.config.ts              # MPA, base '/babycam/', vite-plugin-pwa
 ├── package.json
+├── .github/workflows/ci.yml    # lint + vitest + playwright + build, à chaque push/PR
 ├── .github/workflows/deploy.yml
 └── docs/plan.md                # ce document
 ```
@@ -179,20 +183,47 @@ babycam/
 
 - `vite`, `typescript`, `vite-plugin-pwa`, `vitest`, `eslint`
 - `qrcode` (génération des QR), `pako` (compression du payload), `html5-qrcode` ou `@zxing/browser` (scan QR par la caméra)
+- E2E : `@playwright/test` (+ `jsqr` pour décoder les QR affichés dans les tests)
 - v2 : aucun ajout client (WebSocket natif pour `relay.ts`) ; le relais vit à part dans `relay/` (Cloudflare Worker, déployé avec `wrangler`)
 
-## 13. Phases (roadmap)
+## 13. Méthodologie : incréments testés, un commit par incrément
 
-- **Phase 0 — squelette** : projet Vite + 3 pages + PWA de base (manifest/SW/icônes) + i18n + déploiement GitHub Pages fonctionnel. Vérification : installable, HTTPS, app shell offline.
-- **Phase 1 — v1** : page caméra (getUserMedia, wake lock, torche, sélection caméra), page viewer (flux A/V, son après geste), appairage QR WebRTC 1→1, **multi-viewers en mesh**, révocation, reconnexion, copier-coller en secours.
-- **Phase 2 — v2** : (a) **détection + alertes** — bruit (slider de seuil persisté) + mouvement (toute l'image, sensibilité), alertes DataChannel (son/vibration/bannière/historique côté viewer, signal + wake lock côté caméra) ; (b) **seconde méthode d'appairage** — découverte par relais + code de salon (§5.4), le QR restant le secours.
-- **Phase 3 — optionnel** : notifications push (nécessite un petit service VAPID, donc hors 100 % statique), enregistrement d'extraits sur alerte, audio bidirectionnel, zone d'intérêt pour le mouvement.
+Chaque incrément est petit, testé (unitaires vitest, plus E2E Playwright quand pertinent — §14), et livré par **un seul commit** sur la branche de travail. Règle : un commit n'est poussé que si la CI est verte (lint + tests unitaires + E2E + build). Les PR sont des regroupements d'incréments.
+
+### Phase 0 — squelette
+- I0.1 : init projet Vite + TS, `base: '/babycam/'`, 3 pages vides, build OK → commit (CI lint/build).
+- I0.2 : PWA (manifest + service worker via `vite-plugin-pwa`, icônes placeholder) ; E2E Playwright : manifest servi, SW enregistré, app shell offline → commit.
+- I0.3 : i18n FR/EN + sélecteur de langue + persistance `localStorage` ; tests unitaires i18n → commit.
+- I0.4 : workflow de déploiement GitHub Pages ; vérification HTTPS + base path en ligne → commit.
+
+### Phase 1 — v1 (flux A/V + appairage QR)
+- I1.1 : page caméra : `getUserMedia` + aperçu + start/stop + sélection caméra ; E2E Playwright avec médias factices Chromium (`--use-fake-device-for-media-stream --use-fake-ui-for-media-stream`) → commit.
+- I1.2 : Wake Lock + torche (best effort) ; tests unitaires (mocks) → commit.
+- I1.3 : signalisation QR : encode/décode (pako + base64url + chunking multi-QR) ; tests unitaires round-trip → commit.
+- I1.4 : génération/affichage des QR (carrousel « QR i/n ») ; E2E : le QR rendu est décodé avec `jsqr` dans le test → commit.
+- I1.5 : scan QR côté viewer + saisie copier-coller (secours) → commit.
+- I1.6 : `PeerManager` WebRTC + appairage QR 1→1 complet ; E2E Playwright : deux contextes (caméra + viewer), flux A/V vérifié de bout en bout → commit.
+- I1.7 : multi-viewers en mesh + révocation + reconnexion ; E2E : 1 caméra → 2 viewers → commit.
+- I1.8 : page viewer : rendu du flux, son après geste utilisateur, plein écran → commit.
+
+### Phase 2 — v2
+- I2.1 : détection de bruit (RMS via AnalyserNode, slider de seuil persisté, hystérésis, cooldown) ; tests unitaires sur buffers synthétiques ; E2E avec source audio factice → commit.
+- I2.2 : détection de mouvement (frame diff sur canvas basse résolution, sensibilité réglable) ; tests unitaires sur `ImageData` synthétiques → commit.
+- I2.3 : alertes de bout en bout (DataChannel : son/vibration/bannière/historique côté viewer, signal + wake lock côté caméra) ; E2E Playwright : alerte injectée → bannière assertée → commit.
+- I2.4 : seconde méthode d'appairage — relais + code de salon (`relay/` Worker + `relay.ts` client : présence, échange SDP) ; tests unitaires + E2E avec relais local (`wrangler dev` ou mock WebSocket dans le test) → commit.
+
+### Phase 3 — optionnel
+Notifications push (hors 100 % statique), enregistrement d'extraits sur alerte, audio bidirectionnel, zone d'intérêt pour le mouvement.
 
 ## 14. Tests
 
-- **Unitaires (vitest)** sur les parties testables hors navigateur : round-trip encode/décode de la signalisation (y compris chunking multi-QR), calcul RMS sur buffers synthétiques, diff d'images sur `ImageData` synthétiques, i18n (fallback de langue).
-- **Manuels (checklist)** : deux téléphones sur le même Wi-Fi — appairage QR, flux vidéo+audio, alerte bruit (claquement de mains), alerte mouvement, wake lock, révocation, multi-viewers (2 viewers), installation PWA sur les deux appareils, rechargement de l'app shell offline.
-- **CI** : lint + tests + build sur chaque PR, déploiement Pages sur `main`.
+- **Unitaires (vitest)** : `*.test.ts` colocalisés, exécutés en CI à chaque commit. Couvrent : round-trip encode/décode de la signalisation (chunking multi-QR inclus), calcul RMS/bruit sur buffers synthétiques, diff d'images sur `ImageData` synthétiques, i18n (fallback de langue), machine à états d'appairage, Wake Lock (mocks).
+- **E2E (Playwright)** : `playwright.config.ts` + `e2e/`, exécutés en CI (Chromium headless uniquement ; iOS reste best effort, test manuel). Points clés :
+  - médias factices Chromium (`--use-fake-device-for-media-stream`, `--use-fake-ui-for-media-stream`) pour tester la page caméra sans matériel ;
+  - **deux contextes Playwright = deux « appareils »** : appairage QR de bout en bout (scan simulé en décodant le QR affiché avec `jsqr`, ou via le secours copier-coller), flux A/V vérifié, multi-viewers (1 caméra → 2 viewers), alertes (alerte injectée → bannière + historique assertés côté viewer) ;
+  - PWA : manifest servi, service worker enregistré, app shell disponible offline.
+- **Manuels (checklist)** : deux vrais téléphones sur le même Wi-Fi — appairage QR, flux vidéo+audio, alerte bruit (claquement de mains), alerte mouvement, wake lock, révocation, multi-viewers, installation PWA, iOS Safari (best effort).
+- **CI** : `.github/workflows/ci.yml` — lint + `vitest` + `playwright test` + `vite build` à chaque push/PR ; déploiement Pages séparé sur `main` (§10). Règle : **1 incrément = 1 commit**, poussé uniquement si la CI est verte.
 
 ## 15. Risques et mitigations
 
