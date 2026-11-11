@@ -1,6 +1,8 @@
 import '../../shared/style.css';
 import { applyTranslations, initLangSelect, t } from '../../shared/i18n';
 import { WakeLockManager } from '../../shared/wakelock';
+import { encodeMessage, toQrChunks, type SignalMessage } from '../../shared/signaling';
+import { QrCarousel, qs } from '../../shared/ui';
 
 applyTranslations();
 const langSelect = document.querySelector<HTMLSelectElement>('#lang-select');
@@ -79,6 +81,29 @@ torchBtn.addEventListener('click', () => {
 
 stopBtn.disabled = true;
 setStatusKey('camera.status.idle');
+
+const pairBtn = qs<HTMLButtonElement>('#pair-btn');
+const qrBox = qs<HTMLDivElement>('#qr-box');
+const qrCanvas = qs<HTMLCanvasElement>('#qr-canvas');
+const qrPos = qs<HTMLSpanElement>('#qr-pos');
+const offerPayload = qs<HTMLTextAreaElement>('#offer-payload');
+
+let carousel: QrCarousel | null = null;
+
+pairBtn.addEventListener('click', async () => {
+  if (!stream) {
+    setStatusKey('camera.needStream');
+    return;
+  }
+  const offer: SignalMessage = { v: 1, t: 'offer', sdp: 'v=0 placeholder-offer' };
+  const message = encodeMessage(offer);
+  offerPayload.value = message;
+  qrBox.hidden = false;
+  carousel?.stop();
+  carousel = new QrCarousel(qrCanvas, qrPos, toQrChunks(message));
+  await carousel.start();
+  setStatusKey('camera.pair.waiting');
+});
 
 if (new URLSearchParams(location.search).get('debug') === '1') {
   (window as unknown as Record<string, unknown>).__babycam = {

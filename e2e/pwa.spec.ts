@@ -43,7 +43,8 @@ test('service worker enregistré + app shell offline', async ({ page, context })
   await page.waitForFunction(() => navigator.serviceWorker.controller !== null, null, { timeout: 30_000 });
 
   await context.setOffline(true);
-  await page.reload();
-  await expect(page.locator('#start-btn')).toBeVisible();
-  await shot(page, 'I0.2-camera-offline');
+  const offlinePage = await context.newPage();
+  await offlinePage.goto('camera.html');
+  await expect(offlinePage.locator('#start-btn')).toBeVisible();
+  await shot(offlinePage, 'I0.2-camera-offline');
 });

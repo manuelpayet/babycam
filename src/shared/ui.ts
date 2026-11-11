@@ -1,0 +1,35 @@
+import { renderQr } from './qr';
+
+export function qs<T extends Element>(selector: string): T {
+  const el = document.querySelector<T>(selector);
+  if (!el) throw new Error(`élément introuvable: ${selector}`);
+  return el;
+}
+
+export class QrCarousel {
+  private index = 0;
+  private timer: ReturnType<typeof setInterval> | undefined;
+
+  constructor(
+    private canvas: HTMLCanvasElement,
+    private pos: HTMLElement,
+    private chunks: string[],
+    private intervalMs = 900,
+  ) {}
+
+  async start(): Promise<void> {
+    await this.show();
+    this.timer = setInterval(() => void this.show(), this.intervalMs);
+  }
+
+  stop(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = undefined;
+  }
+
+  private async show(): Promise<void> {
+    await renderQr(this.canvas, this.chunks[this.index]);
+    this.pos.textContent = this.chunks.length > 1 ? `${this.index + 1}/${this.chunks.length}` : '';
+    this.index = (this.index + 1) % this.chunks.length;
+  }
+}
