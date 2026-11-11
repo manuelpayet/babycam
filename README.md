@@ -20,6 +20,20 @@ npm run test:e2e   # tests E2E (Playwright, build + preview auto)
 npm run lint && npm run typecheck && npm run build
 ```
 
+## Relais WebSocket (appairage par code de salon)
+
+Un petit relais Cloudflare Worker (`relay/`, Durable Object `RoomDO`) ne sert qu'à l'échange de signalisation (SDP) — le flux média reste 100 % pair-à-pair en WebRTC. Déployer une fois :
+
+```bash
+cd relay
+npm install
+npx wrangler login
+npx wrangler deploy   # → https://babycam-relay.<sous-domaine>.workers.dev
+npx wrangler tail     # logs en temps réel
+```
+
+L'URL déployée est renseignée dans `src/shared/relay.ts` (`DEFAULT_RELAY_URL` = `wss://babycam-relay.veille-cron.workers.dev`). Tant qu'un relais est configuré, le bouton « Appairer » de la caméra affiche un **petit QR de salon** (`BCAM1/R/CODE`) et le SDP passe par le relais. `?relay=<wss://…>` remplace le relais dans l'URL, `?relay=0` le désactive (mode QR SDP en local, utilisé par les tests E2E).
+
 ## Méthodologie
 
 Un incrément = un commit = tests verts (voir docs/plan.md §13). Les tests E2E produisent des screenshots commités dans `docs/screenshots/`.
