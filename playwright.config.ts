@@ -21,7 +21,7 @@ export default defineConfig({
   webServer: {
     command: 'npm run build && npm run preview -- --port 4173 --strictPort',
     url: 'http://localhost:4173/babycam/',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 180_000,
   },
   projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],

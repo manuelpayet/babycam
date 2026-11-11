@@ -32,6 +32,13 @@ export const DICTS: Record<Lang, Record<string, string>> = {
     'viewer.status.idle': 'Non appairé',
     'viewer.unmute': 'Activer le son',
     'viewer.fullscreen': 'Plein écran',
+    'viewer.pairing': 'Appairage',
+    'viewer.scan': 'Scanner le QR de la caméra',
+    'viewer.pasteOffer': 'Ou coller l’offre :',
+    'viewer.applyOffer': 'Générer la réponse',
+    'viewer.answerLabel': 'Réponse à montrer à la caméra (QR ou copier) :',
+    'viewer.offerReceived': 'Offre reçue, génération de la réponse…',
+    'viewer.badOffer': 'Offre invalide.',
   },
   en: {
     'app.title': 'Babycam',
@@ -61,6 +68,13 @@ export const DICTS: Record<Lang, Record<string, string>> = {
     'viewer.status.idle': 'Not paired',
     'viewer.unmute': 'Enable sound',
     'viewer.fullscreen': 'Fullscreen',
+    'viewer.pairing': 'Pairing',
+    'viewer.scan': 'Scan the camera QR',
+    'viewer.pasteOffer': 'Or paste the offer:',
+    'viewer.applyOffer': 'Generate answer',
+    'viewer.answerLabel': 'Answer to show the camera (QR or copy):',
+    'viewer.offerReceived': 'Offer received, generating answer…',
+    'viewer.badOffer': 'Invalid offer.',
   },
 };
 
