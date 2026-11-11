@@ -4,8 +4,9 @@ export const PROTOCOL_PREFIX = 'BCAM1';
 
 export interface SignalMessage {
   v: 1;
-  t: 'offer' | 'answer';
-  sdp: string;
+  t: 'offer' | 'answer' | 'candidate';
+  sdp?: string;
+  candidate?: RTCIceCandidateInit;
 }
 
 // Capacité max d'un QR version 40-L en mode alphanumérique : 4296 caractères.
@@ -37,7 +38,13 @@ export function decodeMessage(text: string): SignalMessage {
   const bytes = fromBase64Url(trimmed.slice(PROTOCOL_PREFIX.length + 1));
   const json = inflate(bytes, { toText: true }) as string;
   const msg = JSON.parse(json) as SignalMessage;
-  if (msg.v !== 1 || (msg.t !== 'offer' && msg.t !== 'answer') || typeof msg.sdp !== 'string') {
+  if (msg.v !== 1 || (msg.t !== 'offer' && msg.t !== 'answer' && msg.t !== 'candidate')) {
+    throw new Error('bad message');
+  }
+  if ((msg.t === 'offer' || msg.t === 'answer') && typeof msg.sdp !== 'string') {
+    throw new Error('bad message');
+  }
+  if (msg.t === 'candidate' && !msg.candidate) {
     throw new Error('bad message');
   }
   return msg;

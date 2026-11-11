@@ -41,6 +41,10 @@ export class RelayClient {
 
   constructor(private url: string) {}
 
+  get wsState(): number {
+    return this.ws ? this.ws.readyState : 3;
+  }
+
   connect(room: string, role: RelayRole, name: string, opts: { autoReconnect?: boolean } = {}): Promise<void> {
     this.join = { room, role, name };
     this.autoReconnect = opts.autoReconnect ?? false;

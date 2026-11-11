@@ -38,7 +38,7 @@ test('I3.4 QR offre allégé : 1 seul QR décodable, SDP sans ssrc/extmap, candi
   expect(qrText).toBe(chunks[0]);
 
   const msg = decodeMessage(payload);
-  const lines = msg.sdp.split('\r\n');
+  const lines = msg.sdp!.split('\r\n');
   expect(lines.find((l) => l.startsWith('m=video'))!.split(' ').slice(3)).toHaveLength(1);
   expect(lines.find((l) => l.startsWith('m=audio'))!.split(' ').slice(3)).toHaveLength(1);
   expect(msg.sdp).toContain('opus');

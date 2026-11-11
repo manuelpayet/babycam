@@ -7,7 +7,7 @@ export function iceServersFromLocation(): RTCIceServer[] {
   return [{ urls: 'stun:stun.l.google.com:19302' }];
 }
 
-export function waitIceComplete(pc: RTCPeerConnection, timeoutMs = 4000): Promise<void> {
+export function waitIceComplete(pc: RTCPeerConnection, timeoutMs = 8000): Promise<void> {
   return new Promise((resolve) => {
     if (pc.iceGatheringState === 'complete') {
       resolve();
@@ -54,12 +54,20 @@ export interface PeerInfo {
   id: string;
   name: string;
   state: string;
+  iceConnectionState: string;
+  iceGatheringState: string;
+  signalingState: string;
+  localCandidates: string[];
+  remoteCandidates: string[];
 }
 
 interface PeerEntry {
   pc: RTCPeerConnection;
   dc: RTCDataChannel;
   name: string;
+  localCandidates: string[];
+  remoteCandidates: string[];
+  pendingCandidates: RTCIceCandidateInit[];
 }
 
 export interface PeerManagerOptions {
@@ -88,17 +96,32 @@ export class CameraPeers {
   ) {}
 
   get list(): PeerInfo[] {
-    return [...this.peers.entries()].map(([id, p]) => ({ id, name: p.name, state: p.pc.connectionState }));
+    return [...this.peers.entries()].map(([id, p]) => ({
+      id,
+      name: p.name,
+      state: p.pc.connectionState,
+      iceConnectionState: p.pc.iceConnectionState,
+      iceGatheringState: p.pc.iceGatheringState,
+      signalingState: p.pc.signalingState,
+      localCandidates: p.localCandidates,
+      remoteCandidates: p.remoteCandidates,
+    }));
   }
 
   async createOffer(): Promise<{ id: string; msg: SignalMessage }> {
     const id = crypto.randomUUID();
     const pc = new RTCPeerConnection({ iceServers: this.iceServers });
+    const entry: PeerEntry = { pc, dc: null as unknown as RTCDataChannel, name: '…', localCandidates: [], remoteCandidates: [], pendingCandidates: [] };
     pc.onicecandidate = (e) => {
-      if (e.candidate) this.opts.onCandidate?.(id, e.candidate.toJSON());
+      if (e.candidate) {
+        const c = e.candidate.toJSON().candidate ?? '';
+        if (c && !entry.localCandidates.includes(c)) entry.localCandidates.push(c);
+        this.opts.onCandidate?.(id, e.candidate.toJSON());
+      }
     };
     const dc = pc.createDataChannel(CHANNEL_LABEL);
-    this.peers.set(id, { pc, dc, name: '…' });
+    entry.dc = dc;
+    this.peers.set(id, entry);
     dc.onmessage = (ev) => {
       try {
         const m = JSON.parse(ev.data as string) as DataMessage;
@@ -117,7 +140,7 @@ export class CameraPeers {
     };
     for (const track of this.stream.getTracks()) pc.addTrack(track, this.stream);
     await pc.setLocalDescription(await pc.createOffer());
-    if (!this.opts.trickle) await waitIceComplete(pc, 4000);
+    if (!this.opts.trickle) await waitIceComplete(pc);
     const sdp = mungeSdp(pc.localDescription!.sdp, this.opts);
     return { id, msg: { v: 1, t: 'offer', sdp } };
   }
@@ -130,7 +153,7 @@ export class CameraPeers {
     this.lastRegen.set(id, now);
     entry.pc.restartIce();
     await entry.pc.setLocalDescription(await entry.pc.createOffer());
-    await waitIceComplete(entry.pc, 4000);
+    if (!this.opts.trickle) await waitIceComplete(entry.pc);
     const sdp = mungeSdp(entry.pc.localDescription!.sdp, this.opts);
     this.opts.onRenegotiate(id, { v: 1, t: 'offer', sdp });
   }
@@ -139,10 +162,20 @@ export class CameraPeers {
     const peer = this.peers.get(id);
     if (!peer) throw new Error('unknown peer');
     await peer.pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp });
+    for (const c of peer.pendingCandidates.splice(0)) this.addCandidate(id, c);
   }
 
   addCandidate(id: string, candidate: RTCIceCandidateInit): void {
-    void this.peers.get(id)?.pc.addIceCandidate(candidate).catch(() => undefined);
+    const entry = this.peers.get(id);
+    if (!entry) return;
+    if (!entry.pc.remoteDescription) {
+      entry.pendingCandidates.push(candidate);
+      return;
+    }
+    if (candidate.candidate && !entry.remoteCandidates.includes(candidate.candidate)) {
+      entry.remoteCandidates.push(candidate.candidate);
+    }
+    void entry.pc.addIceCandidate(candidate).catch(() => undefined);
   }
 
   sendToAll(m: DataMessage): void {
@@ -166,6 +199,9 @@ export class ViewerPeer {
   pc: RTCPeerConnection | null = null;
   dc: RTCDataChannel | null = null;
   readonly remoteStream = new MediaStream();
+  readonly localCandidates: string[] = [];
+  readonly remoteCandidates: string[] = [];
+  private pendingCandidates: RTCIceCandidateInit[] = [];
   onTrack?: (stream: MediaStream) => void;
   onData?: (m: DataMessage) => void;
   onState?: (state: string) => void;
@@ -180,7 +216,11 @@ export class ViewerPeer {
   async acceptOffer(msg: SignalMessage): Promise<SignalMessage> {
     this.pc = new RTCPeerConnection({ iceServers: this.iceServers });
     this.pc.onicecandidate = (e) => {
-      if (e.candidate) this.onCandidate?.(e.candidate.toJSON());
+      if (e.candidate) {
+        const c = e.candidate.toJSON().candidate ?? '';
+        if (c && !this.localCandidates.includes(c)) this.localCandidates.push(c);
+        this.onCandidate?.(e.candidate.toJSON());
+      }
     };
     this.pc.ontrack = (ev) => {
       for (const track of ev.streams[0].getTracks()) this.remoteStream.addTrack(track);
@@ -203,7 +243,8 @@ export class ViewerPeer {
     this.pc.onconnectionstatechange = () => this.onState?.(this.pc?.connectionState ?? 'new');
     await this.pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
     await this.pc.setLocalDescription(await this.pc.createAnswer());
-    if (!this.trickle) await waitIceComplete(this.pc, 4000);
+    for (const c of this.pendingCandidates.splice(0)) this.addCandidate(c);
+    if (!this.trickle) await waitIceComplete(this.pc);
     return { v: 1, t: 'answer', sdp: this.pc.localDescription!.sdp };
   }
 
@@ -211,11 +252,19 @@ export class ViewerPeer {
     if (!this.pc) throw new Error('no peer connection');
     await this.pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
     await this.pc.setLocalDescription(await this.pc.createAnswer());
-    if (!this.trickle) await waitIceComplete(this.pc, 4000);
+    for (const c of this.pendingCandidates.splice(0)) this.addCandidate(c);
+    if (!this.trickle) await waitIceComplete(this.pc);
     return { v: 1, t: 'answer', sdp: this.pc.localDescription!.sdp };
   }
 
   addCandidate(candidate: RTCIceCandidateInit): void {
-    void this.pc?.addIceCandidate(candidate).catch(() => undefined);
+    if (!this.pc || !this.pc.remoteDescription) {
+      this.pendingCandidates.push(candidate);
+      return;
+    }
+    if (candidate.candidate && !this.remoteCandidates.includes(candidate.candidate)) {
+      this.remoteCandidates.push(candidate.candidate);
+    }
+    void this.pc.addIceCandidate(candidate).catch(() => undefined);
   }
 }
