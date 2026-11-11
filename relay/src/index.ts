@@ -2,16 +2,17 @@ export interface Env {
   ROOM: DurableObjectNamespace;
 }
 
-interface Client {
-  ws: WebSocket;
+interface Attachment {
   id: string;
-  role: 'camera' | 'viewer';
+  role: 'camera' | 'viewer' | null;
   name: string;
 }
 
+// L'état du salon vit dans les attachments des WebSockets (serializeAttachment),
+// PAS dans une Map en mémoire : un Durable Object peut être évincé à tout moment
+// (hibernation), et seule l'attachment survit à l'éviction. getWebSockets() renvoie
+// les sockets hibernés, donc la présence reste correcte même après éviction.
 export class RoomDO {
-  private clients = new Map<WebSocket, Client>();
-
   constructor(private state: DurableObjectState) {}
 
   async fetch(request: Request): Promise<Response> {
@@ -21,6 +22,8 @@ export class RoomDO {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.state.acceptWebSocket(server);
+    const att: Attachment = { id: crypto.randomUUID(), role: null, name: '' };
+    server.serializeAttachment(att);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -31,61 +34,68 @@ export class RoomDO {
     } catch {
       return;
     }
-    const client = this.clients.get(ws);
+    const att = ws.deserializeAttachment() as Attachment | null;
+    if (!att) return;
     switch (m.type) {
       case 'join': {
-        const c: Client = {
-          ws,
-          id: crypto.randomUUID(),
-          role: m.role as Client['role'],
+        const next: Attachment = {
+          id: att.id,
+          role: m.role === 'camera' ? 'camera' : 'viewer',
           name: String(m.name ?? ''),
         };
-        this.clients.set(ws, c);
-        ws.send(JSON.stringify({ type: 'welcome', id: c.id }));
+        ws.serializeAttachment(next);
+        ws.send(JSON.stringify({ type: 'welcome', id: next.id }));
         this.broadcastPresence();
         break;
       }
       case 'request':
       case 'signal':
       case 'candidate': {
-        if (!client) return;
-        this.forward(m.to as string, { ...m, from: client.id });
+        if (!att.role) return;
+        this.forward(m.to as string, { ...m, from: att.id });
         break;
       }
     }
   }
 
-  async webSocketClose(ws: WebSocket): Promise<void> {
-    this.clients.delete(ws);
+  async webSocketClose(): Promise<void> {
     this.broadcastPresence();
   }
 
+  async webSocketError(): Promise<void> {
+    this.broadcastPresence();
+  }
+
+  private sockets(): { ws: WebSocket; att: Attachment | null }[] {
+    return this.state.getWebSockets().map((ws) => ({ ws, att: ws.deserializeAttachment() as Attachment | null }));
+  }
+
   private forward(to: string, msg: unknown): void {
-    for (const c of this.clients.values()) {
-      if (c.id === to) {
+    for (const { ws, att } of this.sockets()) {
+      if (att?.id === to) {
         try {
-          c.ws.send(JSON.stringify(msg));
+          ws.send(JSON.stringify(msg));
         } catch {
-          // socket fermée
+          // socket fermé
         }
       }
     }
   }
 
   private broadcastPresence(): void {
-    const cameras = [...this.clients.values()]
-      .filter((c) => c.role === 'camera')
-      .map((c) => ({ id: c.id, name: c.name, ts: Date.now() }));
+    const cameras = this.sockets()
+      .filter((s) => s.att?.role === 'camera')
+      .map((s) => ({ id: s.att!.id, name: s.att!.name, ts: Date.now() }));
     this.broadcast({ type: 'presence', cameras });
   }
 
   private broadcast(msg: unknown): void {
     const text = JSON.stringify(msg);
-    for (const c of this.clients.values()) {
+    for (const { ws } of this.sockets()) {
       try {
-        c.ws.send(text);
+        ws.send(text);
       } catch {
-        // socket fermée
+        // socket fermé
       }
     }
   }

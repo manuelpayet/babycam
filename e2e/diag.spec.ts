@@ -45,6 +45,8 @@ test('I3.6 salon (relais) : trickle ICE, tous les codecs vidéo offerts, panneau
     { timeout: 30_000 },
   );
   await expect(cam.locator('#viewers li')).toHaveCount(1);
+  await expect(view.locator('#camera-list li')).toHaveCount(1);
+  await expect(view.locator('#diag-relay')).toContainText('cameras=1');
 
   const remoteSdp = await view.evaluate(() => {
     const bc = (window as unknown as { __babycam?: { getRemoteSdp?: () => string | null } }).__babycam;
