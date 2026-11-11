@@ -1,5 +1,5 @@
 import type { SignalMessage } from './signaling';
-import { filterSdpByVideoCodec } from './sdp';
+import { filterSdpByVideoCodec, mungeSdpAggressive } from './sdp';
 
 export function iceServersFromLocation(): RTCIceServer[] {
   const params = new URLSearchParams(location.search);
@@ -67,9 +67,12 @@ export interface PeerManagerOptions {
   onCandidate?: (peerId: string, candidate: RTCIceCandidateInit) => void;
   onRenegotiate?: (peerId: string, msg: SignalMessage) => void;
   getVideoCodec?: () => string | undefined;
+  aggressiveMunge?: boolean;
 }
 
-function mungeSdp(sdp: string, codec: string | undefined): string {
+function mungeSdp(sdp: string, opts: PeerManagerOptions): string {
+  const codec = opts.getVideoCodec?.();
+  if (opts.aggressiveMunge) return mungeSdpAggressive(sdp, codec);
   return codec ? filterSdpByVideoCodec(sdp, codec) : sdp;
 }
 
@@ -115,7 +118,7 @@ export class CameraPeers {
     for (const track of this.stream.getTracks()) pc.addTrack(track, this.stream);
     await pc.setLocalDescription(await pc.createOffer());
     if (!this.opts.trickle) await waitIceComplete(pc, 4000);
-    const sdp = mungeSdp(pc.localDescription!.sdp, this.opts.getVideoCodec?.());
+    const sdp = mungeSdp(pc.localDescription!.sdp, this.opts);
     return { id, msg: { v: 1, t: 'offer', sdp } };
   }
 
@@ -128,7 +131,7 @@ export class CameraPeers {
     entry.pc.restartIce();
     await entry.pc.setLocalDescription(await entry.pc.createOffer());
     await waitIceComplete(entry.pc, 4000);
-    const sdp = mungeSdp(entry.pc.localDescription!.sdp, this.opts.getVideoCodec?.());
+    const sdp = mungeSdp(entry.pc.localDescription!.sdp, this.opts);
     this.opts.onRenegotiate(id, { v: 1, t: 'offer', sdp });
   }
 

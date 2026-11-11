@@ -191,10 +191,11 @@ function renderViewers(): void {
   }
 }
 
-function ensurePeers(iceServers: RTCIceServer[]): CameraPeers {
+function ensurePeers(iceServers: RTCIceServer[], aggressiveMunge = false): CameraPeers {
   if (!peers) {
     peers = new CameraPeers(stream!, iceServers, {
       getVideoCodec: () => currentVideoCodec,
+      aggressiveMunge,
       onRenegotiate: (id, msg) => {
         const from = relayFromByPeer.get(id);
         if (relay && from) {
@@ -239,7 +240,7 @@ pairBtn.addEventListener('click', async () => {
     }
     return;
   }
-  const { id, msg } = await ensurePeers([]).createOffer();
+  const { id, msg } = await ensurePeers([], true).createOffer();
   pendingPeerId = id;
   const message = encodeMessage(msg);
   offerPayload.value = message;
