@@ -39,7 +39,7 @@ test('QR d offre : UN seul QR en mode LAN (sans STUN), décodable et identique a
 
   const codec = await page.locator('#video-codec').inputValue();
   const msg = decodeMessage(payload);
-  const lines = msg.sdp.split('\r\n');
+  const lines = msg.sdp!.split('\r\n');
   const mVideo = lines.find((l) => l.startsWith('m=video'))!;
   expect(mVideo.split(' ').slice(3)).toHaveLength(1);
   expect(msg.sdp).toContain(codec.split('/')[1]);

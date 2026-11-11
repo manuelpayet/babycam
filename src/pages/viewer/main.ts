@@ -8,6 +8,7 @@ import { mungeSdpAggressive, videoMimeFromSdp } from '../../shared/sdp';
 import { iceServersFromLocation, ViewerPeer, type DataMessage } from '../../shared/webrtc';
 import { playAlertSound, pushAlertHistory, showAlertBanner, vibrate } from '../../shared/alerts';
 import { RelayClient, relayUrlFromLocation } from '../../shared/relay';
+import { addDiagLog, candidateAddress } from '../../shared/diag';
 
 applyTranslations();
 const langSelect = document.querySelector<HTMLSelectElement>('#lang-select');
@@ -54,8 +55,29 @@ function requestReconnect(): void {
   }, 3000);
 }
 
-function makePeer(iceServers: RTCIceServer[]): ViewerPeer {
-  const p = new ViewerPeer(iceServers, viewerName.value.trim() || 'Viewer');
+const diagRelay = qs<HTMLParagraphElement>('#diag-relay');
+const diagPeers = qs<HTMLUListElement>('#diag-peers');
+const diagLog = qs<HTMLUListElement>('#diag-log');
+
+function renderDiag(): void {
+  diagRelay.textContent = relayParam
+    ? `relais ${relayParam} — ws=${relay ? relay.wsState : 3}${relay ? ` — id=${relay.id || '…'}` : ''}`
+    : 'relais : désactivé (mode QR local)';
+  diagPeers.innerHTML = '';
+  const pc = peer?.pc;
+  if (pc) {
+    const li = document.createElement('li');
+    li.textContent = `peer [${pc.connectionState}/${pc.iceConnectionState}/${pc.iceGatheringState}/${pc.signalingState}] local: ${peer!.localCandidates.map(candidateAddress).join(', ') || '…'} | remote: ${peer!.remoteCandidates.map(candidateAddress).join(', ') || '…'}`;
+    diagPeers.append(li);
+  }
+}
+setInterval(renderDiag, 1000);
+
+function makePeer(iceServers: RTCIceServer[], trickle = false): ViewerPeer {
+  const p = new ViewerPeer(iceServers, viewerName.value.trim() || 'Viewer', trickle);
+  p.onCandidate = (cand) => {
+    if (relay && lastCameraFrom) relay.candidate(lastCameraFrom, cand);
+  };
   p.onTrack = (s) => {
     remote.srcObject = s;
     remote.muted = true;
@@ -129,9 +151,10 @@ async function applyOffer(): Promise<void> {
   }
   setStatus(t('viewer.offerReceived'));
   peer = makePeer([]);
+  addDiagLog(diagLog, 'offre reçue (QR), génération de la réponse…');
   try {
     const answer = await peer.acceptOffer(msg);
-    const slim = { ...answer, sdp: mungeSdpAggressive(answer.sdp, videoMimeFromSdp(msg.sdp)) };
+    const slim = { ...answer, sdp: mungeSdpAggressive(answer.sdp ?? '', videoMimeFromSdp(msg.sdp ?? '')) };
     const message = encodeMessage(slim);
     answerPayload.value = message;
     qrBoxAnswer.hidden = false;
@@ -140,6 +163,7 @@ async function applyOffer(): Promise<void> {
     await answerCarousel.start();
   } catch (err) {
     setStatus(String(err));
+    addDiagLog(diagLog, `erreur offre: ${String(err)}`);
   }
 }
 
@@ -160,9 +184,11 @@ async function joinRoom(): Promise<void> {
     await relay.connect(room, 'viewer', viewerName.value.trim() || 'Viewer', { autoReconnect: true });
   } catch (err) {
     setStatus(String(err));
+    addDiagLog(diagLog, `erreur join salon: ${String(err)}`);
     return;
   }
   setStatus(t('viewer.status.joined'));
+  addDiagLog(diagLog, `salon rejoint: ${room}`);
   relay.onPresence = (cameras) => {
     cameraList.innerHTML = '';
     for (const cam of cameras) {
@@ -182,21 +208,30 @@ async function joinRoom(): Promise<void> {
       relay?.request(cameras[0].id);
     }
   };
+  relay.onCandidate = (from, cand) => {
+    if (from === lastCameraFrom) peer?.addCandidate(cand);
+  };
   relay.onSignal = async (from, msg) => {
     const m = msg as SignalMessage;
+    if (m.t === 'candidate') {
+      if (m.candidate) peer?.addCandidate(m.candidate);
+      return;
+    }
     if (m.t !== 'offer') return;
     lastCameraFrom = from;
+    addDiagLog(diagLog, `offre reçue de ${from.slice(0, 8)}… (salon)`);
     try {
       if (peer && peer.pc && peer.pc.connectionState !== 'closed') {
         const answer = await peer.renegotiate(m);
         relay?.signal(from, answer);
       } else {
-        peer = makePeer(iceServersFromLocation());
+        peer = makePeer(iceServersFromLocation(), true);
         const answer = await peer.acceptOffer(m);
         relay?.signal(from, answer);
       }
     } catch (err) {
       setStatus(String(err));
+      addDiagLog(diagLog, `erreur signal salon: ${String(err)}`);
     }
   };
 }
@@ -218,5 +253,6 @@ if (new URLSearchParams(location.search).get('debug') === '1') {
   (window as unknown as Record<string, unknown>).__babycam = {
     getPeerState: () => peer?.pc?.connectionState ?? null,
     getDataLog: () => dataLog,
+    getRemoteSdp: () => peer?.pc?.remoteDescription?.sdp ?? null,
   };
 }

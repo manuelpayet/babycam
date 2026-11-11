@@ -9,6 +9,7 @@ import { CameraPeers, iceServersFromLocation, type AlertKind } from '../../share
 import { NoiseDetector } from '../../shared/detection/noise';
 import { MotionDetector } from '../../shared/detection/motion';
 import { RelayClient, newRoomCode, relayUrlFromLocation } from '../../shared/relay';
+import { addDiagLog, candidateAddress } from '../../shared/diag';
 import type { SignalMessage } from '../../shared/signaling';
 
 applyTranslations();
@@ -176,8 +177,26 @@ const applyAnswerBtn = qs<HTMLButtonElement>('#apply-answer-btn');
 const viewersList = qs<HTMLUListElement>('#viewers');
 
 let peers: CameraPeers | null = null;
+let peersMode: 'qr' | 'relay' | null = null;
 let pendingPeerId: string | null = null;
 let carousel: QrCarousel | null = null;
+
+const diagRelay = qs<HTMLParagraphElement>('#diag-relay');
+const diagPeers = qs<HTMLUListElement>('#diag-peers');
+const diagLog = qs<HTMLUListElement>('#diag-log');
+
+function renderDiag(): void {
+  diagRelay.textContent = relay
+    ? `relais ${relayUrlFromLocation()} — ws=${relay.wsState} — id=${relay.id || '…'}`
+    : 'relais : désactivé (mode QR local)';
+  diagPeers.innerHTML = '';
+  for (const p of peers?.list ?? []) {
+    const li = document.createElement('li');
+    li.textContent = `${p.name} [${p.state}/${p.iceConnectionState}/${p.iceGatheringState}/${p.signalingState}] local: ${p.localCandidates.map(candidateAddress).join(', ') || '…'} | remote: ${p.remoteCandidates.map(candidateAddress).join(', ') || '…'}`;
+    diagPeers.append(li);
+  }
+}
+setInterval(renderDiag, 1000);
 
 function renderViewers(): void {
   viewersList.innerHTML = '';
@@ -194,11 +213,21 @@ function renderViewers(): void {
   }
 }
 
-function ensurePeers(iceServers: RTCIceServer[], aggressiveMunge = false): CameraPeers {
+function ensurePeers(iceServers: RTCIceServer[], mode: 'qr' | 'relay'): CameraPeers {
+  if (peers && peersMode !== mode) {
+    for (const p of peers.list) peers.revoke(p.id);
+    peers = null;
+  }
+  peersMode = mode;
   if (!peers) {
     peers = new CameraPeers(stream!, iceServers, {
-      getVideoCodec: () => currentVideoCodec,
-      aggressiveMunge,
+      getVideoCodec: mode === 'qr' ? () => currentVideoCodec : undefined,
+      aggressiveMunge: mode === 'qr',
+      trickle: mode === 'relay',
+      onCandidate: (id, cand) => {
+        const from = relayFromByPeer.get(id);
+        if (relay && from) relay.candidate(from, cand);
+      },
       onRenegotiate: (id, msg) => {
         const from = relayFromByPeer.get(id);
         if (relay && from) {
@@ -240,10 +269,12 @@ pairBtn.addEventListener('click', async () => {
       setStatusKey('camera.pair.waiting');
     } catch (err) {
       setStatus(String(err));
+      addDiagLog(diagLog, `erreur appairage relais: ${String(err)}`);
     }
     return;
   }
-  const { id, msg } = await ensurePeers([], true).createOffer();
+  const { id, msg } = await ensurePeers([], 'qr').createOffer();
+  addDiagLog(diagLog, 'offre QR créée');
   pendingPeerId = id;
   const message = encodeMessage(msg);
   offerPayload.value = message;
@@ -268,6 +299,7 @@ async function applyAnswer(): Promise<void> {
     setStatusKey('camera.pair.connected');
   } catch (err) {
     setStatus(String(err));
+    addDiagLog(diagLog, `erreur réponse: ${String(err)}`);
   }
 }
 
@@ -296,7 +328,7 @@ let relay: RelayClient | null = null;
 const relayFromByPeer = new Map<string, string>();
 
 async function startRelayRoom(relayUrl: string): Promise<string> {
-  ensurePeers(iceServersFromLocation());
+  ensurePeers(iceServersFromLocation(), 'relay');
   relay = new RelayClient(relayUrl);
   const room = newRoomCode();
   await relay.connect(room, 'camera', 'Caméra', { autoReconnect: true });
@@ -313,21 +345,36 @@ async function startRelayRoom(relayUrl: string): Promise<string> {
     }
     if (pendingFrom.has(from)) return;
     pendingFrom.add(from);
+    addDiagLog(diagLog, `requête reçue de ${from.slice(0, 8)}…`);
     try {
-      const { id, msg } = await ensurePeers(iceServersFromLocation()).createOffer();
+      const { id, msg } = await ensurePeers(iceServersFromLocation(), 'relay').createOffer();
       relayFromByPeer.set(id, from);
       relay!.signal(from, msg);
+      const buffered = peers?.list.find((p) => p.id === id)?.localCandidates ?? [];
+      for (const c of buffered) relay!.candidate(from, { candidate: c });
+      addDiagLog(diagLog, `offre envoyée à ${from.slice(0, 8)}… (${buffered.length} candidats déjà collectés)`);
     } finally {
       pendingFrom.delete(from);
     }
   };
-  relay.onSignal = async (from, msg) => {
+  relay.onCandidate = (from, cand) => {
     const peerId = [...relayFromByPeer.entries()].find(([, f]) => f === from)?.[0];
-    if (peerId && (msg as SignalMessage).t === 'answer') {
-      await peers!.acceptAnswer(peerId, msg as SignalMessage);
+    if (peerId) peers?.addCandidate(peerId, cand);
+  };
+  relay.onSignal = async (from, msg) => {
+    const m = msg as SignalMessage;
+    const peerId = [...relayFromByPeer.entries()].find(([, f]) => f === from)?.[0];
+    if (m.t === 'candidate') {
+      if (peerId && m.candidate) peers?.addCandidate(peerId, m.candidate);
+      return;
+    }
+    if (peerId && m.t === 'answer' && typeof m.sdp === 'string') {
+      await peers!.acceptAnswer(peerId, m);
       setStatusKey('camera.pair.connected');
+      addDiagLog(diagLog, `réponse appliquée pour ${from.slice(0, 8)}…`);
     }
   };
+  addDiagLog(diagLog, `salon créé: ${room}`);
   return room;
 }
 
@@ -347,6 +394,7 @@ createRoomBtn.addEventListener('click', async () => {
     roomCodeEl.hidden = false;
   } catch (err) {
     setStatus(String(err));
+    addDiagLog(diagLog, `erreur salon: ${String(err)}`);
   }
 });
 

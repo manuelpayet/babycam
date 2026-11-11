@@ -29,9 +29,23 @@ describe('signaling', () => {
     expect(decodeMessage(encodeMessage(answer))).toEqual(answer);
   });
 
+  it('round-trip candidate (trickle ICE via relais)', () => {
+    const cand: SignalMessage = {
+      v: 1,
+      t: 'candidate',
+      candidate: { candidate: 'candidate:1 1 udp 2122260223 192.168.1.42 54321 typ host', sdpMid: '0' },
+    };
+    expect(decodeMessage(encodeMessage(cand))).toEqual(cand);
+  });
+
+  it('rejette une offre sans sdp et un candidate sans candidate', () => {
+    expect(() => decodeMessage(encodeMessage({ v: 1, t: 'offer' } as SignalMessage))).toThrow('bad message');
+    expect(() => decodeMessage(encodeMessage({ v: 1, t: 'candidate' } as SignalMessage))).toThrow('bad message');
+  });
+
   it('le payload compressé est plus court que le SDP brut', () => {
     const encoded = encodeMessage(sample);
-    expect(encoded.length).toBeLessThan(sample.sdp.length);
+    expect(encoded.length).toBeLessThan(sample.sdp!.length);
   });
 
   it('découpe en chunks QR et réassemble dans le désordre', () => {

@@ -145,6 +145,16 @@ input[type='range'] {
   border-radius: 0.5rem;
 }
 
+#diag ul {
+  font-family: ui-monospace, monospace;
+  font-size: 0.65rem;
+  max-height: 10rem;
+  overflow: auto;
+  list-style: none;
+  padding-left: 0;
+  word-break: break-all;
+}
+
 .build-badge {
   margin-top: 2rem;
   font-size: 0.65rem;
