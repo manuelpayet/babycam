@@ -22,5 +22,15 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - run: npx playwright install --with-deps chromium
+      - name: Installer Chromium Playwright (retries sur les deps apt, fallback navigateur seul)
+        run: |
+          npx playwright install chromium
+          for i in 1 2 3; do
+            sudo apt-get update || true
+            if npx playwright install --with-deps chromium; then exit 0; fi
+            echo "tentative $i/3 --with-deps en échec, retry dans 20s"
+            sleep 20
+          done
+          echo "fallback : navigateur Playwright seul, sans deps apt"
+          npx playwright install chromium
       - run: npx playwright test --pass-with-no-tests
