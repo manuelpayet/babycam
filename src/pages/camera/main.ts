@@ -1,25 +1,26 @@
 import '../../shared/style.css';
 import { applyTranslations, initLangSelect, t } from '../../shared/i18n';
 import { WakeLockManager } from '../../shared/wakelock';
-import { encodeMessage, toQrChunks, type SignalMessage } from '../../shared/signaling';
+import { decodeMessage, encodeMessage, toQrChunks } from '../../shared/signaling';
 import { QrCarousel, qs } from '../../shared/ui';
+import { CameraPeers, iceServersFromLocation } from '../../shared/webrtc';
 
 applyTranslations();
 const langSelect = document.querySelector<HTMLSelectElement>('#lang-select');
 if (langSelect) initLangSelect(langSelect);
 
-const preview = document.querySelector<HTMLVideoElement>('#preview')!;
-const status = document.querySelector<HTMLParagraphElement>('#status')!;
-const startBtn = document.querySelector<HTMLButtonElement>('#start-btn')!;
-const stopBtn = document.querySelector<HTMLButtonElement>('#stop-btn')!;
-const switchBtn = document.querySelector<HTMLButtonElement>('#switch-cam')!;
-const torchBtn = document.querySelector<HTMLButtonElement>('#torch-btn')!;
+const preview = qs<HTMLVideoElement>('#preview');
+const status = qs<HTMLParagraphElement>('#status');
+const startBtn = qs<HTMLButtonElement>('#start-btn');
+const stopBtn = qs<HTMLButtonElement>('#stop-btn');
+const switchBtn = qs<HTMLButtonElement>('#switch-cam');
+const torchBtn = qs<HTMLButtonElement>('#torch-btn');
 
 let stream: MediaStream | null = null;
 let facing: 'environment' | 'user' = 'environment';
 
 const wakeLock = new WakeLockManager();
-const wakeLockStatus = document.querySelector<HTMLParagraphElement>('#wakelock-status')!;
+const wakeLockStatus = qs<HTMLParagraphElement>('#wakelock-status');
 wakeLock.onChange = (active) => {
   wakeLockStatus.textContent = active ? `🔒 ${t('camera.wakelock.on')}` : '';
 };
@@ -87,16 +88,39 @@ const qrBox = qs<HTMLDivElement>('#qr-box');
 const qrCanvas = qs<HTMLCanvasElement>('#qr-canvas');
 const qrPos = qs<HTMLSpanElement>('#qr-pos');
 const offerPayload = qs<HTMLTextAreaElement>('#offer-payload');
+const answerPayload = qs<HTMLTextAreaElement>('#answer-payload');
+const applyAnswerBtn = qs<HTMLButtonElement>('#apply-answer-btn');
+const viewersList = qs<HTMLUListElement>('#viewers');
 
+let peers: CameraPeers | null = null;
+let pendingPeerId: string | null = null;
 let carousel: QrCarousel | null = null;
+
+function renderViewers(): void {
+  viewersList.innerHTML = '';
+  for (const p of peers?.list ?? []) {
+    const li = document.createElement('li');
+    const label = document.createElement('span');
+    label.textContent = `${p.name} (${p.state})`;
+    const revokeBtn = document.createElement('button');
+    revokeBtn.className = 'btn btn-small';
+    revokeBtn.textContent = t('camera.revoke');
+    revokeBtn.addEventListener('click', () => peers?.revoke(p.id));
+    li.append(label, ' ', revokeBtn);
+    viewersList.append(li);
+  }
+}
 
 pairBtn.addEventListener('click', async () => {
   if (!stream) {
     setStatusKey('camera.needStream');
     return;
   }
-  const offer: SignalMessage = { v: 1, t: 'offer', sdp: 'v=0 placeholder-offer' };
-  const message = encodeMessage(offer);
+  peers ??= new CameraPeers(stream, iceServersFromLocation());
+  peers.onPeerChange = () => renderViewers();
+  const { id, msg } = await peers.createOffer();
+  pendingPeerId = id;
+  const message = encodeMessage(msg);
   offerPayload.value = message;
   qrBox.hidden = false;
   carousel?.stop();
@@ -105,9 +129,23 @@ pairBtn.addEventListener('click', async () => {
   setStatusKey('camera.pair.waiting');
 });
 
+applyAnswerBtn.addEventListener('click', async () => {
+  if (!peers || !pendingPeerId) return;
+  try {
+    const msg = decodeMessage(answerPayload.value);
+    await peers.acceptAnswer(pendingPeerId, msg);
+    carousel?.stop();
+    setStatusKey('camera.pair.connected');
+  } catch (err) {
+    setStatus(String(err));
+  }
+});
+
 if (new URLSearchParams(location.search).get('debug') === '1') {
   (window as unknown as Record<string, unknown>).__babycam = {
     getStream: () => stream,
     wakeLockActive: () => wakeLock.active,
+    getPeers: () => peers?.list ?? [],
+    sendToAll: (m: unknown) => peers?.sendToAll(m as never),
   };
 }

@@ -39,6 +39,9 @@ export const DICTS: Record<Lang, Record<string, string>> = {
     'viewer.answerLabel': 'Réponse à montrer à la caméra (QR ou copier) :',
     'viewer.offerReceived': 'Offre reçue, génération de la réponse…',
     'viewer.badOffer': 'Offre invalide.',
+    'viewer.nameLabel': 'Votre nom :',
+    'viewer.status.connected': 'Connecté — flux reçu',
+    'viewer.status.lost': 'Connexion perdue',
   },
   en: {
     'app.title': 'Babycam',
@@ -75,6 +78,9 @@ export const DICTS: Record<Lang, Record<string, string>> = {
     'viewer.answerLabel': 'Answer to show the camera (QR or copy):',
     'viewer.offerReceived': 'Offer received, generating answer…',
     'viewer.badOffer': 'Invalid offer.',
+    'viewer.nameLabel': 'Your name:',
+    'viewer.status.connected': 'Connected — stream received',
+    'viewer.status.lost': 'Connection lost',
   },
 };
 
