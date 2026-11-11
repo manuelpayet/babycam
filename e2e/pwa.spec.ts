@@ -38,6 +38,8 @@ test('service worker enregistré + app shell offline', async ({ page, context })
     null,
     { timeout: 30_000 },
   );
+  await page.reload();
+  await page.waitForFunction(() => navigator.serviceWorker.controller !== null, null, { timeout: 30_000 });
 
   await context.setOffline(true);
   await page.reload();
