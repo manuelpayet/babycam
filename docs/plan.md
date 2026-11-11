@@ -6,7 +6,7 @@ Statut : brouillon à valider. Aucun code n'est écrit à ce stade.
 
 Babycam est une application web installable (PWA) déployée sous forme de **site 100 % statique** sur GitHub Pages. Elle comporte deux pages servies par le même site :
 
-- **Page Caméra** (`/camera`) — posée sur le téléphone près du lit : capte la vidéo + le micro, garde l'écran allumé (Wake Lock), appaire des viewers par QR code, et (v2) détecte le bruit et le mouvement.
+- **Page Caméra** (`/camera`) — posée sur le téléphone près du lit : capte la vidéo + le micro, garde l'écran allumé (Wake Lock), appaire des viewers par QR code (v1) ou par découverte via code de salon (v2), et (v2) détecte le bruit et le mouvement.
 - **Page Viewer** (`/viewer`) — sur le téléphone du parent : scanne un QR code pour s'appairer à une caméra, reçoit le flux vidéo/audio en direct et les alertes (bruit / mouvement).
 
 Page d'accueil (`/`) : choix « Je surveille » (caméra) ou « Je regarde » (viewer), plus accès aux réglages et à la langue.
@@ -16,6 +16,7 @@ Page d'accueil (`/`) : choix « Je surveille » (caméra) ou « Je regarde » (v
 - `getUserMedia()` ne donne accès à la caméra que **localement**, dans la page qui la demande. Une page statique ne peut donc pas, à elle seule, « servir » un flux live à un autre appareil.
 - Solution retenue : **WebRTC pair-à-pair**. Seule la *signalisation* (échange de l'offre/réponse SDP) transite hors bande — ici **manuellement par QR code** (avec copier-coller en secours). Le flux média passe ensuite directement entre les deux appareils via un serveur STUN public. **Zéro backend**, hébergement statique suffisant.
 - Conséquence pour le multi-viewers : architecture en **mesh** — la page caméra maintient une `RTCPeerConnection` par viewer appairé (N viewers = N QR d'appairage, un à la fois). Toujours sans serveur.
+- En **v2** s'ajoute une seconde méthode d'appairage : la **découverte** des caméras disponibles via un mini relais de signalisation + code de salon (§5.4). La v1 reste 100 % zéro serveur (QR uniquement).
 
 ## 3. Décisions prises (récapitulatif des réponses)
 
@@ -26,6 +27,7 @@ Page d'accueil (`/`) : choix « Je surveille » (caméra) ou « Je regarde » (v
 | Audio | Unidirectionnel caméra → viewer (pas de talkie-walkie) |
 | Scénario d'appareils | Deux appareils distincts sur le même réseau local |
 | Sécurité de l'appairage | QR seul (le QR est le secret), pas de PIN — usage réseau local uniquement |
+| Seconde méthode d'appairage | Découverte par relais + code de salon, en **v2** ; le QR reste le mode v1 et le secours permanent |
 | Hébergement | GitHub Pages (HTTPS requis pour `getUserMedia`, fourni par Pages) |
 | Navigateurs cibles | Android + Chrome et iPhone + Safari, iOS en best effort (pas de matériel Apple pour tester) |
 | Viewers simultanés | Plusieurs parents en parallèle (mesh côté caméra) |
@@ -48,7 +50,7 @@ Page d'accueil (`/`) : choix « Je surveille » (caméra) ou « Je regarde » (v
 - **Signalisation** : manuelle par QR code (voir §5).
 - **Alertes** : `RTCDataChannel` caméra → viewers (voir §8.3).
 
-## 5. Protocole d'appairage par QR code (détail)
+## 5. Protocole d'appairage (v1 : QR code, mode par défaut ; v2 : découverte par relais, §5.4)
 
 ### 5.1 Flux nominal (1 caméra → 1 viewer)
 
@@ -79,6 +81,17 @@ Caméra                          Viewer
 - Bouton « Révoquer » par viewer : ferme la PC, retire le viewer de la liste.
 - Sur `iceconnectionstate = failed/disconnected` : tentative d'ICE restart automatique, sinon affichage d'un état d'erreur clair et bouton « réappairer » (nouveau QR).
 - Multi-viewers : répéter le flux §5.1 pour chaque nouveau viewer ; la caméra garde une `Map<viewerId, { pc, dc, name }>`.
+
+### 5.4 Seconde méthode d'appairage (v2) : découverte par relais + code de salon
+
+Objectif : une UX « découverte » — le viewer voit les caméras appairables et clique — en complément du QR. Le mDNS/Bonjour pur étant impossible depuis un navigateur (§2), on passe par un relais de signalisation.
+
+- **Relais** : tout petit Worker Cloudflare (WebSocket + Durable Object, tier gratuit, hibernation WebSocket → coût ~0) qui ne transporte **que** la présence et la signalisation SDP — jamais le média, qui reste P2P WebRTC. Code dans `relay/`, déployé via `wrangler` sur un compte Cloudflare gratuit. Côté client web : WebSocket natif, aucune dépendance.
+- **Salon** : code de 6 caractères alphanumériques généré par la caméra ; c'est le secret (équivalent au QR). La caméra publie sa présence dans le salon : `{ name: "Chambre de Léa", ts, viewers: n }`, avec heartbeat.
+- **Flux** : le viewer saisit le code du salon (ou scanne un QR ne contenant que ce code, beaucoup plus léger qu'un SDP) → se connecte au relais → liste les caméras présentes dans ce salon → en sélectionne une → échange offre/réponse SDP + candidats ICE via le relais (trickle ICE OK ici, contrairement au QR) → connexion P2P établie, puis DataChannel comme en §5.1-5.3.
+- **Sécurité** : le code de salon est le seul secret ; optionnellement, signalisation chiffrée de bout en bout (AES-GCM via WebCrypto, clé dérivée du code) pour que le relais ne voie que du chiffré. Révocation d'un viewer possible côté caméra.
+- **Portée** : le relais passant par internet, l'appairage fonctionne aussi hors du Wi-Fi local — à arbitrer (le code de salon fait alors office de seul garde-fou).
+- Le **QR reste disponible** dans toutes les versions comme mode zéro-serveur / secours.
 
 ## 6. Page Caméra — fonctionnalités
 
@@ -126,6 +139,7 @@ Caméra                          Viewer
 - Workflow `.github/workflows/deploy.yml` : sur push sur `main`, `npm ci` → `npm run build` → déploiement via les actions officielles (`actions/configure-pages`, `actions/upload-pages-artifact`, `actions/deploy-pages`).
 - URL cible : `https://manuelpayet.github.io/babycam/` (d'où le `base: '/babycam/'`).
 - Prérequis : activer GitHub Pages (source « GitHub Actions ») dans les réglages du dépôt — à faire une fois côté GitHub.
+- Le relais v2 se déploie à part : `cd relay && wrangler deploy` (compte Cloudflare gratuit).
 
 ## 11. Structure du projet proposée
 
@@ -144,6 +158,7 @@ babycam/
 │   └── shared/
 │       ├── webrtc.ts           # PeerManager : PC, offre/réponse, ICE, mesh multi-viewers
 │       ├── signaling.ts        # encode/décode SDP pour QR (pako + base64url + chunking)
+│       ├── relay.ts            # v2 : client WebSocket du relais (présence + signalisation)
 │       ├── qr.ts               # génération QR + scan caméra
 │       ├── detection/noise.ts  # AnalyserNode, RMS, seuil, hystérésis, cooldown
 │       ├── detection/motion.ts # frame diff sur canvas basse résolution
@@ -151,6 +166,9 @@ babycam/
 │       ├── wakelock.ts
 │       ├── i18n.ts             # fr / en
 │       └── ui.ts               # composants communs (boutons, bannière, slider)
+├── relay/                      # v2 : mini relais WebSocket (Cloudflare Worker + Durable Object)
+│   ├── src/index.ts
+│   └── wrangler.toml
 ├── vite.config.ts              # MPA, base '/babycam/', vite-plugin-pwa
 ├── package.json
 ├── .github/workflows/deploy.yml
@@ -161,12 +179,13 @@ babycam/
 
 - `vite`, `typescript`, `vite-plugin-pwa`, `vitest`, `eslint`
 - `qrcode` (génération des QR), `pako` (compression du payload), `html5-qrcode` ou `@zxing/browser` (scan QR par la caméra)
+- v2 : aucun ajout client (WebSocket natif pour `relay.ts`) ; le relais vit à part dans `relay/` (Cloudflare Worker, déployé avec `wrangler`)
 
 ## 13. Phases (roadmap)
 
 - **Phase 0 — squelette** : projet Vite + 3 pages + PWA de base (manifest/SW/icônes) + i18n + déploiement GitHub Pages fonctionnel. Vérification : installable, HTTPS, app shell offline.
 - **Phase 1 — v1** : page caméra (getUserMedia, wake lock, torche, sélection caméra), page viewer (flux A/V, son après geste), appairage QR WebRTC 1→1, **multi-viewers en mesh**, révocation, reconnexion, copier-coller en secours.
-- **Phase 2 — v2 (détection)** : bruit (slider de seuil persisté) + mouvement (toute l'image, sensibilité), alertes DataChannel (son/vibration/bannière/historique côté viewer, signal + wake lock côté caméra).
+- **Phase 2 — v2** : (a) **détection + alertes** — bruit (slider de seuil persisté) + mouvement (toute l'image, sensibilité), alertes DataChannel (son/vibration/bannière/historique côté viewer, signal + wake lock côté caméra) ; (b) **seconde méthode d'appairage** — découverte par relais + code de salon (§5.4), le QR restant le secours.
 - **Phase 3 — optionnel** : notifications push (nécessite un petit service VAPID, donc hors 100 % statique), enregistrement d'extraits sur alerte, audio bidirectionnel, zone d'intérêt pour le mouvement.
 
 ## 14. Tests
@@ -185,6 +204,8 @@ babycam/
 | NAT symétrique empêche le P2P (STUN insuffisant) | Message d'erreur clair ; TURN payant hors scope v1 |
 | Fuite du QR (photo) | Accepté (usage réseau local) ; révocation manuelle + QR régénérable |
 | `base` oublié → assets cassés sur `/babycam/` | `base: '/babycam/'` dans Vite + vérification en phase 0 |
+| Relais indisponible (v2) | Le QR reste le mode d'appairage par défaut et le secours |
+| Fuite du code de salon (v2) | Le code est le secret ; chiffrement E2E optionnel de la signalisation ; révocation côté caméra |
 | Batterie (wake lock + caméra) | Indicateur d'état, bouton arrêt explicite, information à l'utilisateur |
 | CPU de la détection | Analyse à basse fréquence/résolution (canvas 160 px, bruit via AnalyserNode) |
 | SW qui cache trop vieux | `autoUpdate` + precache versionné par le build |
@@ -195,3 +216,4 @@ babycam/
 - Nom affiché pour chaque viewer : saisi par le viewer à la connexion (champ libre).
 - STUN : `stun:stun.l.google.com:19302` ; pas de TURN en v1.
 - Push notifications : reportées en v2+ et hors périmètre « 100 % statique ».
+- Relais v2 : URL du Worker Cloudflare à déployer (`relay/`) et décision sur le chiffrement E2E de la signalisation (clé dérivée du code de salon).
