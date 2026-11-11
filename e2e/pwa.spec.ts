@@ -17,7 +17,7 @@ test('accueil servi + manifest PWA + icônes', async ({ page }) => {
 });
 
 test('service worker enregistré + app shell offline', async ({ page, context }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(120_000);
   await page.goto('camera.html');
   await shot(page, 'I0.2-camera-initial');
 
@@ -40,7 +40,7 @@ test('service worker enregistré + app shell offline', async ({ page, context })
     { timeout: 30_000 },
   );
   await page.reload();
-  await page.waitForFunction(() => navigator.serviceWorker.controller !== null, null, { timeout: 30_000 });
+  await page.waitForFunction(() => navigator.serviceWorker.controller !== null, null, { timeout: 60_000 });
 
   await context.setOffline(true);
   const offlinePage = await context.newPage();

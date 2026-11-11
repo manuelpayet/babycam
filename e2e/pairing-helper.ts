@@ -11,8 +11,16 @@ export async function startCamera(cam: Page): Promise<void> {
 }
 
 export async function pairViaPaste(cam: Page, view: Page): Promise<void> {
+  const previousOffer = await cam.locator('#offer-payload').inputValue().catch(() => '');
   await cam.click('#pair-btn');
-  await cam.waitForSelector('#qr-box:not([hidden])');
+  await cam.waitForFunction(
+    (prev) => {
+      const el = document.querySelector<HTMLTextAreaElement>('#offer-payload');
+      return !!el && el.value.startsWith('BCAM1:') && el.value !== prev;
+    },
+    previousOffer,
+    { timeout: 30_000 },
+  );
   const offer = await cam.locator('#offer-payload').inputValue();
 
   await view.goto('viewer.html' + debugParams());
