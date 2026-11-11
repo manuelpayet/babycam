@@ -1,0 +1,197 @@
+# Plan détaillé — Babycam (PWA statique)
+
+Statut : brouillon à valider. Aucun code n'est écrit à ce stade.
+
+## 1. Vision
+
+Babycam est une application web installable (PWA) déployée sous forme de **site 100 % statique** sur GitHub Pages. Elle comporte deux pages servies par le même site :
+
+- **Page Caméra** (`/camera`) — posée sur le téléphone près du lit : capte la vidéo + le micro, garde l'écran allumé (Wake Lock), appaire des viewers par QR code, et (v2) détecte le bruit et le mouvement.
+- **Page Viewer** (`/viewer`) — sur le téléphone du parent : scanne un QR code pour s'appairer à une caméra, reçoit le flux vidéo/audio en direct et les alertes (bruit / mouvement).
+
+Page d'accueil (`/`) : choix « Je surveille » (caméra) ou « Je regarde » (viewer), plus accès aux réglages et à la langue.
+
+## 2. Contrainte d'architecture : pourquoi WebRTC, pas un « serveur statique »
+
+- `getUserMedia()` ne donne accès à la caméra que **localement**, dans la page qui la demande. Une page statique ne peut donc pas, à elle seule, « servir » un flux live à un autre appareil.
+- Solution retenue : **WebRTC pair-à-pair**. Seule la *signalisation* (échange de l'offre/réponse SDP) transite hors bande — ici **manuellement par QR code** (avec copier-coller en secours). Le flux média passe ensuite directement entre les deux appareils via un serveur STUN public. **Zéro backend**, hébergement statique suffisant.
+- Conséquence pour le multi-viewers : architecture en **mesh** — la page caméra maintient une `RTCPeerConnection` par viewer appairé (N viewers = N QR d'appairage, un à la fois). Toujours sans serveur.
+
+## 3. Décisions prises (récapitulatif des réponses)
+
+| Sujet | Décision |
+|---|---|
+| Transport du flux | WebRTC P2P + appairage QR, zéro serveur |
+| Périmètre v1 | Page caméra + page viewer + appairage QR + flux vidéo **et audio** |
+| Audio | Unidirectionnel caméra → viewer (pas de talkie-walkie) |
+| Scénario d'appareils | Deux appareils distincts sur le même réseau local |
+| Sécurité de l'appairage | QR seul (le QR est le secret), pas de PIN — usage réseau local uniquement |
+| Hébergement | GitHub Pages (HTTPS requis pour `getUserMedia`, fourni par Pages) |
+| Navigateurs cibles | Android + Chrome et iPhone + Safari, iOS en best effort (pas de matériel Apple pour tester) |
+| Viewers simultanés | Plusieurs parents en parallèle (mesh côté caméra) |
+| Canal d'alerte | Alertes locales sur le viewer (page ouverte) d'abord ; push en v2 (hors 100 % statique) |
+| Seuil de bruit | Slider réglable dans l'UI, persisté en `localStorage` |
+| Zone de mouvement | Toute l'image + réglage de sensibilité |
+| Action sur alerte | Alerte sur le viewer (son + vibration + bannière) **et** réveil/signal sur l'écran caméra |
+| Stack | Vite + vanilla TypeScript (pas de framework) |
+| Écran caméra | Wake Lock actif pendant la surveillance |
+| Langues de l'UI | Français + anglais (i18n) |
+| Livrable immédiat | Ce plan détaillé, sans code |
+
+## 4. Architecture générale
+
+- **Build** : Vite en mode multi-page (MPA) avec 3 entrées HTML : `index.html`, `camera.html`, `viewer.html`. Build vanilla TS, aucune dépendance runtime de framework.
+- **Base path** : `/babycam/` (site projet GitHub Pages, pas site utilisateur) → `base: '/babycam/'` dans `vite.config.ts`.
+- **PWA** : `manifest.webmanifest` + service worker générés via `vite-plugin-pwa` (precache de l'app shell, `registerType: 'autoUpdate'`). L'app shell doit se charger offline ; le flux live, évidemment, non.
+- **i18n** : dictionnaires `fr` / `en`, détection `navigator.language`, sélecteur manuel, persistance `localStorage`.
+- **Communication média** : WebRTC (`RTCPeerConnection`, tracks vidéo + audio). STUN public (`stun:stun.l.google.com:19302`). Pas de TURN en v1 (coût ; suffisant pour la plupart des Wi-Fi domestiques).
+- **Signalisation** : manuelle par QR code (voir §5).
+- **Alertes** : `RTCDataChannel` caméra → viewers (voir §8.3).
+
+## 5. Protocole d'appairage par QR code (détail)
+
+### 5.1 Flux nominal (1 caméra → 1 viewer)
+
+```
+Caméra                          Viewer
+  | -- créer PC, ajouter tracks, createOffer, attendre ICE gathering complete
+  | -- encoder l'offre en QR (plusieurs QR si besoin) --> afficher
+  |                                                        | -- scanner les QR (ou coller)
+  |                                                        | -- setRemote(offer), createAnswer, attendre ICE
+  | <-- encoder la réponse en QR, l'afficher ------------- |
+  | -- scanner la réponse (ou coller) --> setRemote(answer)
+  | ===== connexion WebRTC établie, flux A/V direct =====> |
+  | <-- DataChannel "hello" {name} du viewer ------------- |
+```
+
+### 5.2 Format du payload QR
+
+- JSON `{ "v": 1, "t": "offer" | "answer", "sdp": "..." }` → compression deflate (`pako`) → `base64url` → découpage en chunks.
+- Chaque chunk est un QR préfixé : `BCAM1/<index>/<total>/<chunk>`. La caméra affiche les QR en séquence (carrousel « QR 2/5 ») ; le viewer les scanne dans l'ordre et réassemble.
+- **Pourquoi le chunking** : un SDP audio+vidéo fait plusieurs kilo-octets, supérieur à la capacité d'un QR (max ~2,9 Ko). Compression + multi-QR = robuste.
+- Attendre `icegatheringstate === 'complete'` (avec timeout ~10 s) pour que le SDP contienne tous les candidats : un seul payload, pas de trickle ICE à transporter.
+- **Secours** : copier-coller manuel (textarea) si la caméra du viewer ne peut pas scanner.
+
+### 5.3 Machine à états (côté caméra, par viewer)
+
+`idle → offering (QR affiché) → awaiting-answer → connected → disconnected/failed`
+
+- Bouton « Révoquer » par viewer : ferme la PC, retire le viewer de la liste.
+- Sur `iceconnectionstate = failed/disconnected` : tentative d'ICE restart automatique, sinon affichage d'un état d'erreur clair et bouton « réappairer » (nouveau QR).
+- Multi-viewers : répéter le flux §5.1 pour chaque nouveau viewer ; la caméra garde une `Map<viewerId, { pc, dc, name }>`.
+
+## 6. Page Caméra — fonctionnalités
+
+- `getUserMedia({ video: { facingMode: 'environment' }, audio: { echoCancellation: true, noiseSuppression: true } })` ; aperçu local `<video muted autoplay playsinline>`.
+- **Wake Lock** : `navigator.wakeLock.request('screen')` au démarrage, re-demandé sur `visibilitychange` ; indicateur visuel « écran maintenu allumé » (best effort iOS ≥ 16.4).
+- Contrôles : démarrer/arrêter, bascule caméra avant/arrière (`enumerateDevices`), torche (`track.applyConstraints({ advanced: [{ torch: true }] })` si supporté), qualité (résolution cible).
+- Appairage : QR courant + file d'attente, liste des viewers connectés (nom envoyé par le viewer), révocation individuelle.
+- v2 : modules de détection (§8) + réglages (seuils persistés).
+
+## 7. Page Viewer — fonctionnalités
+
+- Scan des QR d'offre (caméra du téléphone via lib de scan) ou saisie manuelle → génère la réponse → affiche le QR de réponse à montrer à la caméra.
+- `<video autoplay playsinline>` recevant le `remoteStream` ; **audio non muté**, mais iOS exige un geste utilisateur pour l'autoplay sonore → bouton « Activer le son » (unmute après tap).
+- DataChannel « alerts » : à la réception d'une alerte → son d'alerte (WebAudio), `navigator.vibrate([200, 100, 200])`, bannière « Bruit détecté » / « Mouvement détecté » + entrée horodatée dans un historique.
+- Contrôles : plein écran, son on/off, re-scan pour réappairer, déconnexion.
+- Optionnel et bon marché : jauge de niveau sonore live envoyée par la caméra via DataChannel (toutes les ~500 ms).
+
+## 8. Détection et alertes (v2 — « à terme »)
+
+### 8.1 Détection de bruit (côté caméra)
+
+- Web Audio API : `MediaStreamAudioSourceNode` → `AnalyserNode` (`fftSize: 2048`), lecture `getByteTimeDomainData` toutes les ~150 ms → calcul du **RMS** → niveau en dBFS.
+- **Seuil** : slider 0–100 dans l'UI, persisté `localStorage`, mappé sur une plage de dBFS.
+- Anti-faux-positifs : moyenne glissante (~300 ms), déclenchement si niveau > seuil pendant ≥ 400 ms consécutifs, puis **cooldown** de ~5 s.
+
+### 8.2 Détection de mouvement (côté caméra)
+
+- Canvas caché basse résolution (ex. 160 px de large), `drawImage(video)` toutes les ~200 ms, `getImageData`, comparaison à la frame précédente : différence de luminance par pixel, comptage des pixels dont la diff > ~25 → **ratio de pixels changés**.
+- **Toute l'image** (décision), avec slider de **sensibilité** mappé sur le ratio seuil ; cooldown ~2 s entre deux événements. Throttling pour limiter le CPU.
+
+### 8.3 Propagation des alertes et actions
+
+- Événement détecté côté caméra → `dataChannel.send(JSON.stringify({ type: 'alert', kind: 'noise' | 'motion', level, ts }))` vers **tous** les viewers connectés.
+- Côté viewer : son + vibration + bannière + historique (voir §7).
+- Côté caméra (« réveil écran caméra ») : re-acquisition du Wake Lock, flash visuel de l'écran et bip local si l'écran était éteint/atténué.
+
+## 9. PWA : manifest, service worker, icônes
+
+- `manifest.webmanifest` : nom « Babycam », `display: 'standalone'`, `start_url: '/babycam/'`, orientation portrait, couleurs de thème, icônes 192/512 (dont variantes maskable).
+- Icônes : placeholder SVG fourni, PNG 192/512 générés par un petit script (à fournir au moment du code) — point ouvert, icônes finales à remplacer.
+- Service worker : précache des assets buildés, stratégie `NetworkFirst` pour les pages, app shell disponible offline.
+
+## 10. Déploiement sur GitHub Pages
+
+- Workflow `.github/workflows/deploy.yml` : sur push sur `main`, `npm ci` → `npm run build` → déploiement via les actions officielles (`actions/configure-pages`, `actions/upload-pages-artifact`, `actions/deploy-pages`).
+- URL cible : `https://manuelpayet.github.io/babycam/` (d'où le `base: '/babycam/'`).
+- Prérequis : activer GitHub Pages (source « GitHub Actions ») dans les réglages du dépôt — à faire une fois côté GitHub.
+
+## 11. Structure du projet proposée
+
+```
+babycam/
+├── index.html                  # accueil : choix caméra / viewer
+├── camera.html
+├── viewer.html
+├── public/
+│   └── icons/                  # 192, 512, maskable, apple-touch-icon
+├── src/
+│   ├── pages/
+│   │   ├── home/main.ts
+│   │   ├── camera/main.ts
+│   │   └── viewer/main.ts
+│   └── shared/
+│       ├── webrtc.ts           # PeerManager : PC, offre/réponse, ICE, mesh multi-viewers
+│       ├── signaling.ts        # encode/décode SDP pour QR (pako + base64url + chunking)
+│       ├── qr.ts               # génération QR + scan caméra
+│       ├── detection/noise.ts  # AnalyserNode, RMS, seuil, hystérésis, cooldown
+│       ├── detection/motion.ts # frame diff sur canvas basse résolution
+│       ├── alerts.ts           # DataChannel alertes, son, vibration, bannière, historique
+│       ├── wakelock.ts
+│       ├── i18n.ts             # fr / en
+│       └── ui.ts               # composants communs (boutons, bannière, slider)
+├── vite.config.ts              # MPA, base '/babycam/', vite-plugin-pwa
+├── package.json
+├── .github/workflows/deploy.yml
+└── docs/plan.md                # ce document
+```
+
+## 12. Dépendances (build/dev uniquement, rien de framework)
+
+- `vite`, `typescript`, `vite-plugin-pwa`, `vitest`, `eslint`
+- `qrcode` (génération des QR), `pako` (compression du payload), `html5-qrcode` ou `@zxing/browser` (scan QR par la caméra)
+
+## 13. Phases (roadmap)
+
+- **Phase 0 — squelette** : projet Vite + 3 pages + PWA de base (manifest/SW/icônes) + i18n + déploiement GitHub Pages fonctionnel. Vérification : installable, HTTPS, app shell offline.
+- **Phase 1 — v1** : page caméra (getUserMedia, wake lock, torche, sélection caméra), page viewer (flux A/V, son après geste), appairage QR WebRTC 1→1, **multi-viewers en mesh**, révocation, reconnexion, copier-coller en secours.
+- **Phase 2 — v2 (détection)** : bruit (slider de seuil persisté) + mouvement (toute l'image, sensibilité), alertes DataChannel (son/vibration/bannière/historique côté viewer, signal + wake lock côté caméra).
+- **Phase 3 — optionnel** : notifications push (nécessite un petit service VAPID, donc hors 100 % statique), enregistrement d'extraits sur alerte, audio bidirectionnel, zone d'intérêt pour le mouvement.
+
+## 14. Tests
+
+- **Unitaires (vitest)** sur les parties testables hors navigateur : round-trip encode/décode de la signalisation (y compris chunking multi-QR), calcul RMS sur buffers synthétiques, diff d'images sur `ImageData` synthétiques, i18n (fallback de langue).
+- **Manuels (checklist)** : deux téléphones sur le même Wi-Fi — appairage QR, flux vidéo+audio, alerte bruit (claquement de mains), alerte mouvement, wake lock, révocation, multi-viewers (2 viewers), installation PWA sur les deux appareils, rechargement de l'app shell offline.
+- **CI** : lint + tests + build sur chaque PR, déploiement Pages sur `main`.
+
+## 15. Risques et mitigations
+
+| Risque | Mitigation |
+|---|---|
+| SDP trop gros pour un QR | Compression + QR chunkés en séquence + copier-coller en secours |
+| Autoplay audio bloqué (iOS) | Bouton « Activer le son » après geste utilisateur |
+| iOS Safari : quirks PWA/WebRTC/Wake Lock | Cible best effort, test manuel si matériel dispo ; messages d'erreur explicites |
+| NAT symétrique empêche le P2P (STUN insuffisant) | Message d'erreur clair ; TURN payant hors scope v1 |
+| Fuite du QR (photo) | Accepté (usage réseau local) ; révocation manuelle + QR régénérable |
+| `base` oublié → assets cassés sur `/babycam/` | `base: '/babycam/'` dans Vite + vérification en phase 0 |
+| Batterie (wake lock + caméra) | Indicateur d'état, bouton arrêt explicite, information à l'utilisateur |
+| CPU de la détection | Analyse à basse fréquence/résolution (canvas 160 px, bruit via AnalyserNode) |
+| SW qui cache trop vieux | `autoUpdate` + precache versionné par le build |
+
+## 16. Points ouverts (défauts retenus en attendant)
+
+- Nom de l'app : « Babycam » ; icônes : placeholder à remplacer.
+- Nom affiché pour chaque viewer : saisi par le viewer à la connexion (champ libre).
+- STUN : `stun:stun.l.google.com:19302` ; pas de TURN en v1.
+- Push notifications : reportées en v2+ et hors périmètre « 100 % statique ».
