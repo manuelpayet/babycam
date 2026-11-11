@@ -1,11 +1,11 @@
 import '../../shared/style.css';
 import { applyTranslations, initLangSelect, t } from '../../shared/i18n';
-import { createChunkCollector, decodeMessage, encodeMessage, toQrChunks, type SignalMessage } from '../../shared/signaling';
+import { createChunkCollector, decodeMessage, decodeRoom, encodeMessage, toQrChunks, type SignalMessage } from '../../shared/signaling';
 import { QrScanner } from '../../shared/scanner';
 import { QrCarousel, qs } from '../../shared/ui';
 import { iceServersFromLocation, ViewerPeer, type DataMessage } from '../../shared/webrtc';
 import { playAlertSound, pushAlertHistory, showAlertBanner, vibrate } from '../../shared/alerts';
-import { RelayClient } from '../../shared/relay';
+import { RelayClient, relayUrlFromLocation } from '../../shared/relay';
 
 applyTranslations();
 const langSelect = document.querySelector<HTMLSelectElement>('#lang-select');
@@ -40,7 +40,7 @@ const dataLog: DataMessage[] = [];
 let relay: RelayClient | null = null;
 let lastCameraFrom: string | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-const relayParam = new URLSearchParams(location.search).get('relay');
+const relayParam = relayUrlFromLocation();
 
 function requestReconnect(): void {
   if (!relay || !lastCameraFrom) return;
@@ -80,18 +80,37 @@ function makePeer(iceServers: RTCIceServer[]): ViewerPeer {
   return p;
 }
 
-const collector = createChunkCollector();
+let collector = createChunkCollector();
+
+async function applyOfferText(raw: string): Promise<void> {
+  const text = raw.trim();
+  const room = decodeRoom(text);
+  if (room) {
+    roomInput.value = room;
+    await joinRoom();
+    return;
+  }
+  offerInput.value = text;
+  await applyOffer();
+}
 
 const scanner = new QrScanner('qr-reader', (text) => {
+  const room = decodeRoom(text);
+  if (room) {
+    void scanner.stop();
+    qrReader.hidden = true;
+    void applyOfferText(text);
+    return;
+  }
   const full = collector.add(text) ?? (text.startsWith('BCAM1:') ? text : null);
   if (!full) return;
   void scanner.stop();
   qrReader.hidden = true;
-  offerInput.value = full;
-  void applyOffer();
+  void applyOfferText(full);
 });
 
 scanBtn.addEventListener('click', () => {
+  collector = createChunkCollector();
   qrReader.hidden = false;
   scanner.start('environment').catch((err: unknown) => setStatus(String(err)));
 });
@@ -119,9 +138,9 @@ async function applyOffer(): Promise<void> {
   }
 }
 
-applyOfferBtn.addEventListener('click', () => void applyOffer());
+applyOfferBtn.addEventListener('click', () => void applyOfferText(offerInput.value));
 
-joinRoomBtn.addEventListener('click', async () => {
+async function joinRoom(): Promise<void> {
   if (!relayParam) {
     setStatus(t('camera.relayNeeded'));
     return;
@@ -153,6 +172,10 @@ joinRoomBtn.addEventListener('click', async () => {
       li.append(btn);
       cameraList.append(li);
     }
+    if (cameras.length === 1) {
+      lastCameraFrom = cameras[0].id;
+      relay?.request(cameras[0].id);
+    }
   };
   relay.onSignal = async (from, msg) => {
     const m = msg as SignalMessage;
@@ -171,7 +194,9 @@ joinRoomBtn.addEventListener('click', async () => {
       setStatus(String(err));
     }
   };
-});
+}
+
+joinRoomBtn.addEventListener('click', () => void joinRoom());
 
 unmuteBtn.addEventListener('click', () => {
   remote.muted = false;
