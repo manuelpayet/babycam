@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#1e1b4b" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <title>Babycam — Viewer</title>
+  </head>
+  <body>
+    <main class="page">
+      <header class="topbar">
+        <a class="btn btn-small" href="./index.html">←</a>
+        <h1 data-i18n="viewer.title">Viewer</h1>
+        <select id="lang-select">
+          <option value="fr">FR</option>
+          <option value="en">EN</option>
+        </select>
+      </header>
+      <p id="status" class="status" data-i18n="viewer.status.idle">Non appairé</p>
+      <video id="remote" autoplay playsinline></video>
+      <div class="controls">
+        <button id="unmute-btn" class="btn" data-i18n="viewer.unmute">Activer le son</button>
+        <button id="fullscreen-btn" class="btn" data-i18n="viewer.fullscreen">Plein écran</button>
+      </div>
+    </main>
+    <script type="module" src="./src/pages/viewer/main.ts"></script>
+  </body>
+</html>
