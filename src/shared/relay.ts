@@ -16,12 +16,14 @@ export function backoffDelayMs(attempt: number): number {
   return Math.min(30_000, 1_000 * 2 ** Math.max(0, attempt));
 }
 
-// URL du relais par défaut (à renseigner après `wrangler deploy` dans relay/). Vide = non configuré.
-export const DEFAULT_RELAY_URL = '';
+// URL du relais par défaut (worker Cloudflare `babycam-relay`, déployé via `wrangler deploy` dans relay/).
+export const DEFAULT_RELAY_URL: string = 'wss://babycam-relay.veille-cron.workers.dev';
 
 export function relayUrlFromLocation(): string | null {
   const param = new URLSearchParams(location.search).get('relay');
-  return param || (DEFAULT_RELAY_URL !== '' ? DEFAULT_RELAY_URL : null);
+  if (param === '0') return null;
+  if (param) return param;
+  return DEFAULT_RELAY_URL !== '' ? DEFAULT_RELAY_URL : null;
 }
 
 export class RelayClient {

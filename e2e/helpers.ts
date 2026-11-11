@@ -9,5 +9,5 @@ export async function shot(page: Page, name: string): Promise<void> {
 }
 
 export function debugParams(): string {
-  return '?stun=0&debug=1';
+  return '?stun=0&debug=1&relay=0';
 }
