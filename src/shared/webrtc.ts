@@ -1,4 +1,5 @@
 import type { SignalMessage } from './signaling';
+import { filterSdpByVideoCodec } from './sdp';
 
 export function iceServersFromLocation(): RTCIceServer[] {
   const params = new URLSearchParams(location.search);
@@ -65,6 +66,11 @@ export interface PeerManagerOptions {
   trickle?: boolean;
   onCandidate?: (peerId: string, candidate: RTCIceCandidateInit) => void;
   onRenegotiate?: (peerId: string, msg: SignalMessage) => void;
+  getVideoCodec?: () => string | undefined;
+}
+
+function mungeSdp(sdp: string, codec: string | undefined): string {
+  return codec ? filterSdpByVideoCodec(sdp, codec) : sdp;
 }
 
 export class CameraPeers {
@@ -109,7 +115,8 @@ export class CameraPeers {
     for (const track of this.stream.getTracks()) pc.addTrack(track, this.stream);
     await pc.setLocalDescription(await pc.createOffer());
     if (!this.opts.trickle) await waitIceComplete(pc, 4000);
-    return { id, msg: { v: 1, t: 'offer', sdp: pc.localDescription!.sdp } };
+    const sdp = mungeSdp(pc.localDescription!.sdp, this.opts.getVideoCodec?.());
+    return { id, msg: { v: 1, t: 'offer', sdp } };
   }
 
   private async renegotiate(id: string): Promise<void> {
@@ -121,7 +128,8 @@ export class CameraPeers {
     entry.pc.restartIce();
     await entry.pc.setLocalDescription(await entry.pc.createOffer());
     await waitIceComplete(entry.pc, 4000);
-    this.opts.onRenegotiate(id, { v: 1, t: 'offer', sdp: entry.pc.localDescription!.sdp });
+    const sdp = mungeSdp(entry.pc.localDescription!.sdp, this.opts.getVideoCodec?.());
+    this.opts.onRenegotiate(id, { v: 1, t: 'offer', sdp });
   }
 
   async acceptAnswer(id: string, msg: SignalMessage): Promise<void> {

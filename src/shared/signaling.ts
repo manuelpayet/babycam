@@ -52,6 +52,15 @@ export function toQrChunks(message: string): string[] {
   return parts.map((part, i) => `${PROTOCOL_PREFIX}/${i + 1}/${n}/${part}`);
 }
 
+export function encodeRoom(room: string): string {
+  return `BCAM1/R/${room}`;
+}
+
+export function decodeRoom(text: string): string | null {
+  const m = /^BCAM1\/R\/([A-Z2-9]{6})$/.exec(text.trim());
+  return m ? m[1] : null;
+}
+
 export function createChunkCollector(): { add: (text: string) => string | null } {
   const parts = new Map<number, string>();
   let total = 0;

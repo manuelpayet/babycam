@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   createChunkCollector,
   decodeMessage,
+  decodeRoom,
   encodeMessage,
+  encodeRoom,
   PROTOCOL_PREFIX,
   QR_CHUNK_SIZE,
   toQrChunks,
@@ -68,5 +70,15 @@ describe('signaling', () => {
     const collector = createChunkCollector();
     expect(collector.add('hello world')).toBeNull();
     expect(collector.add(`${PROTOCOL_PREFIX}/2/5/abc`)).toBeNull();
+  });
+
+  it('encode/decode de code de salon', () => {
+    const text = encodeRoom('ABC234');
+    expect(text).toBe('BCAM1/R/ABC234');
+    expect(decodeRoom(text)).toBe('ABC234');
+    expect(decodeRoom(encodeMessage(sample))).toBeNull();
+    expect(decodeRoom('BCAM1/R/abc')).toBeNull();
+    expect(decodeRoom('BCAM1/R/ABC12')).toBeNull();
+    expect(decodeRoom('BCAM1/R/ABC120')).toBeNull();
   });
 });

@@ -1,13 +1,13 @@
 import '../../shared/style.css';
 import { applyTranslations, initLangSelect, t } from '../../shared/i18n';
 import { WakeLockManager } from '../../shared/wakelock';
-import { createChunkCollector, decodeMessage, encodeMessage, toQrChunks } from '../../shared/signaling';
+import { createChunkCollector, decodeMessage, encodeMessage, encodeRoom, toQrChunks } from '../../shared/signaling';
 import { QrCarousel, qs } from '../../shared/ui';
 import { QrScanner } from '../../shared/scanner';
 import { CameraPeers, iceServersFromLocation, type AlertKind } from '../../shared/webrtc';
 import { NoiseDetector } from '../../shared/detection/noise';
 import { MotionDetector } from '../../shared/detection/motion';
-import { RelayClient, newRoomCode } from '../../shared/relay';
+import { RelayClient, newRoomCode, relayUrlFromLocation } from '../../shared/relay';
 import type { SignalMessage } from '../../shared/signaling';
 
 applyTranslations();
@@ -135,6 +135,34 @@ motionSens.addEventListener('input', () => {
   if (motionDet) motionDet.sensitivity = Number(motionSens.value);
 });
 
+const codecSel = qs<HTMLSelectElement>('#video-codec');
+const CODEC_KEY = 'babycam.videoCodec';
+function availableVideoCodecs(): string[] {
+  const caps = RTCRtpSender.getCapabilities('video');
+  const seen = new Set<string>();
+  for (const c of caps?.codecs ?? []) {
+    if (c.mimeType.startsWith('video/')) seen.add(c.mimeType);
+  }
+  return [...seen];
+}
+let currentVideoCodec: string | undefined;
+{
+  const available = availableVideoCodecs();
+  const saved = localStorage.getItem(CODEC_KEY);
+  currentVideoCodec = saved && available.includes(saved) ? saved : available[0];
+  for (const c of available) {
+    const opt = document.createElement('option');
+    opt.value = c;
+    opt.textContent = c;
+    codecSel.append(opt);
+  }
+  codecSel.value = currentVideoCodec ?? '';
+  codecSel.addEventListener('change', () => {
+    currentVideoCodec = codecSel.value || undefined;
+    localStorage.setItem(CODEC_KEY, codecSel.value);
+  });
+}
+
 const pairBtn = qs<HTMLButtonElement>('#pair-btn');
 const qrBox = qs<HTMLDivElement>('#qr-box');
 const qrCanvas = qs<HTMLCanvasElement>('#qr-canvas');
@@ -166,6 +194,7 @@ function renderViewers(): void {
 function ensurePeers(iceServers: RTCIceServer[]): CameraPeers {
   if (!peers) {
     peers = new CameraPeers(stream!, iceServers, {
+      getVideoCodec: () => currentVideoCodec,
       onRenegotiate: (id, msg) => {
         const from = relayFromByPeer.get(id);
         if (relay && from) {
@@ -189,6 +218,25 @@ function ensurePeers(iceServers: RTCIceServer[]): CameraPeers {
 pairBtn.addEventListener('click', async () => {
   if (!stream) {
     setStatusKey('camera.needStream');
+    return;
+  }
+  const relayUrl = relayUrlFromLocation();
+  if (relayUrl) {
+    try {
+      const room = await startRelayRoom(relayUrl);
+      const message = encodeRoom(room);
+      offerPayload.value = message;
+      qrBox.hidden = false;
+      answerBox.hidden = true;
+      roomCodeEl.textContent = room;
+      roomCodeEl.hidden = false;
+      carousel?.stop();
+      carousel = new QrCarousel(qrCanvas, qrPos, [message]);
+      await carousel.start();
+      setStatusKey('camera.pair.waiting');
+    } catch (err) {
+      setStatus(String(err));
+    }
     return;
   }
   const { id, msg } = await ensurePeers([]).createOffer();
@@ -237,41 +285,37 @@ scanAnswerBtn.addEventListener('click', () => {
   answerScanner.start('user').catch((err: unknown) => setStatus(String(err)));
 });
 
-const relayParam = new URLSearchParams(location.search).get('relay');
 const createRoomBtn = qs<HTMLButtonElement>('#create-room-btn');
 const roomCodeEl = qs<HTMLParagraphElement>('#room-code');
 const relayStatus = qs<HTMLParagraphElement>('#relay-status');
 let relay: RelayClient | null = null;
 const relayFromByPeer = new Map<string, string>();
 
-createRoomBtn.addEventListener('click', async () => {
-  if (!stream) {
-    setStatusKey('camera.needStream');
-    return;
-  }
-  if (!relayParam) {
-    setStatusKey('camera.relayNeeded');
-    return;
-  }
+async function startRelayRoom(relayUrl: string): Promise<string> {
   ensurePeers(iceServersFromLocation());
-  relay = new RelayClient(relayParam);
+  relay = new RelayClient(relayUrl);
   const room = newRoomCode();
-  try {
-    await relay.connect(room, 'camera', 'Caméra', { autoReconnect: true });
-  } catch (err) {
-    setStatus(String(err));
-    return;
-  }
+  await relay.connect(room, 'camera', 'Caméra', { autoReconnect: true });
   relay.onReconnecting = (attempt, delay) => {
-    relayStatus.textContent = `${relayParam} — reconnexion #${attempt} dans ${delay} ms`;
+    relayStatus.textContent = `${relayUrl} — reconnexion #${attempt} dans ${delay} ms`;
   };
-  roomCodeEl.textContent = room;
-  roomCodeEl.hidden = false;
-  relayStatus.textContent = relayParam;
+  relayStatus.textContent = relayUrl;
+  const pendingFrom = new Set<string>();
   relay.onRequest = async (from) => {
-    const { id, msg } = await peers!.createOffer();
-    relayFromByPeer.set(id, from);
-    relay!.signal(from, msg);
+    const existing = [...relayFromByPeer.entries()].find(([, f]) => f === from);
+    if (existing) {
+      const state = peers?.list.find((p) => p.id === existing[0])?.state;
+      if (state === 'new' || state === 'connecting' || state === 'connected') return;
+    }
+    if (pendingFrom.has(from)) return;
+    pendingFrom.add(from);
+    try {
+      const { id, msg } = await ensurePeers(iceServersFromLocation()).createOffer();
+      relayFromByPeer.set(id, from);
+      relay!.signal(from, msg);
+    } finally {
+      pendingFrom.delete(from);
+    }
   };
   relay.onSignal = async (from, msg) => {
     const peerId = [...relayFromByPeer.entries()].find(([, f]) => f === from)?.[0];
@@ -280,6 +324,26 @@ createRoomBtn.addEventListener('click', async () => {
       setStatusKey('camera.pair.connected');
     }
   };
+  return room;
+}
+
+createRoomBtn.addEventListener('click', async () => {
+  if (!stream) {
+    setStatusKey('camera.needStream');
+    return;
+  }
+  const relayUrl = relayUrlFromLocation();
+  if (!relayUrl) {
+    setStatusKey('camera.relayNeeded');
+    return;
+  }
+  try {
+    const room = await startRelayRoom(relayUrl);
+    roomCodeEl.textContent = room;
+    roomCodeEl.hidden = false;
+  } catch (err) {
+    setStatus(String(err));
+  }
 });
 
 if (new URLSearchParams(location.search).get('debug') === '1') {
