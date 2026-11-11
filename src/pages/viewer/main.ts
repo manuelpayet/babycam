@@ -38,7 +38,17 @@ let peer: ViewerPeer | null = null;
 let answerCarousel: QrCarousel | null = null;
 const dataLog: DataMessage[] = [];
 let relay: RelayClient | null = null;
+let lastCameraFrom: string | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 const relayParam = new URLSearchParams(location.search).get('relay');
+
+function requestReconnect(): void {
+  if (!relay || !lastCameraFrom) return;
+  clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(() => {
+    if (peer?.pc?.connectionState !== 'connected') relay?.request(lastCameraFrom!);
+  }, 3000);
+}
 
 function makePeer(): ViewerPeer {
   const p = new ViewerPeer(iceServersFromLocation(), viewerName.value.trim() || 'Viewer');
@@ -57,8 +67,15 @@ function makePeer(): ViewerPeer {
     }
   };
   p.onState = (state) => {
-    if (state === 'connected') setStatus(t('viewer.status.connected'));
-    else if (state === 'failed' || state === 'disconnected' || state === 'closed') setStatus(t('viewer.status.lost'));
+    if (state === 'connected') {
+      clearTimeout(reconnectTimer);
+      setStatus(t('viewer.status.connected'));
+    } else if (state === 'disconnected' || state === 'failed') {
+      setStatus(t('viewer.status.reconnecting'));
+      requestReconnect();
+    } else if (state === 'closed') {
+      setStatus(t('viewer.status.lost'));
+    }
   };
   return p;
 }
@@ -116,7 +133,7 @@ joinRoomBtn.addEventListener('click', async () => {
   }
   relay = new RelayClient(relayParam);
   try {
-    await relay.connect(room, 'viewer', viewerName.value.trim() || 'Viewer');
+    await relay.connect(room, 'viewer', viewerName.value.trim() || 'Viewer', { autoReconnect: true });
   } catch (err) {
     setStatus(String(err));
     return;
@@ -129,21 +146,29 @@ joinRoomBtn.addEventListener('click', async () => {
       const btn = document.createElement('button');
       btn.className = 'btn';
       btn.textContent = cam.name || cam.id;
-      btn.addEventListener('click', () => relay?.request(cam.id));
+      btn.addEventListener('click', () => {
+        lastCameraFrom = cam.id;
+        relay?.request(cam.id);
+      });
       li.append(btn);
       cameraList.append(li);
     }
   };
   relay.onSignal = async (from, msg) => {
     const m = msg as SignalMessage;
-    if (m.t === 'offer' && !peer) {
-      peer = makePeer();
-      try {
+    if (m.t !== 'offer') return;
+    lastCameraFrom = from;
+    try {
+      if (peer && peer.pc && peer.pc.connectionState !== 'closed') {
+        const answer = await peer.renegotiate(m);
+        relay?.signal(from, answer);
+      } else {
+        peer = makePeer();
         const answer = await peer.acceptOffer(m);
         relay?.signal(from, answer);
-      } catch (err) {
-        setStatus(String(err));
       }
+    } catch (err) {
+      setStatus(String(err));
     }
   };
 });

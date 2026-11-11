@@ -54,7 +54,9 @@ export const DICTS: Record<Lang, Record<string, string>> = {
     'viewer.nameLabel': 'Votre nom :',
     'viewer.status.connected': 'Connecté — flux reçu',
     'viewer.status.lost': 'Connexion perdue',
+    'viewer.status.reconnecting': 'Reconnexion en cours…',
     'viewer.alerts': 'Alertes',
+    'camera.pair.reconnect': 'Reconnexion : re-scanner le QR si demandé',
   },
   en: {
     'app.title': 'Babycam',
@@ -106,7 +108,9 @@ export const DICTS: Record<Lang, Record<string, string>> = {
     'viewer.nameLabel': 'Your name:',
     'viewer.status.connected': 'Connected — stream received',
     'viewer.status.lost': 'Connection lost',
+    'viewer.status.reconnecting': 'Reconnecting…',
     'viewer.alerts': 'Alerts',
+    'camera.pair.reconnect': 'Reconnecting: re-scan the QR if asked',
   },
 };
 

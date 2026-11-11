@@ -162,14 +162,35 @@ function renderViewers(): void {
   }
 }
 
+function ensurePeers(): CameraPeers {
+  if (!peers) {
+    peers = new CameraPeers(stream!, iceServersFromLocation(), {
+      onRenegotiate: (id, msg) => {
+        const from = relayFromByPeer.get(id);
+        if (relay && from) {
+          relay.signal(from, msg);
+        } else {
+          const message = encodeMessage(msg);
+          offerPayload.value = message;
+          qrBox.hidden = false;
+          carousel?.stop();
+          carousel = new QrCarousel(qrCanvas, qrPos, toQrChunks(message));
+          void carousel.start();
+          setStatusKey('camera.pair.reconnect');
+        }
+      },
+    });
+    peers.onPeerChange = () => renderViewers();
+  }
+  return peers;
+}
+
 pairBtn.addEventListener('click', async () => {
   if (!stream) {
     setStatusKey('camera.needStream');
     return;
   }
-  peers ??= new CameraPeers(stream, iceServersFromLocation());
-  peers.onPeerChange = () => renderViewers();
-  const { id, msg } = await peers.createOffer();
+  const { id, msg } = await ensurePeers().createOffer();
   pendingPeerId = id;
   const message = encodeMessage(msg);
   offerPayload.value = message;
@@ -208,16 +229,18 @@ createRoomBtn.addEventListener('click', async () => {
     setStatusKey('camera.relayNeeded');
     return;
   }
-  peers ??= new CameraPeers(stream, iceServersFromLocation());
-  peers.onPeerChange = () => renderViewers();
+  ensurePeers();
   relay = new RelayClient(relayParam);
   const room = newRoomCode();
   try {
-    await relay.connect(room, 'camera', 'Caméra');
+    await relay.connect(room, 'camera', 'Caméra', { autoReconnect: true });
   } catch (err) {
     setStatus(String(err));
     return;
   }
+  relay.onReconnecting = (attempt, delay) => {
+    relayStatus.textContent = `${relayParam} — reconnexion #${attempt} dans ${delay} ms`;
+  };
   roomCodeEl.textContent = room;
   roomCodeEl.hidden = false;
   relayStatus.textContent = relayParam;

@@ -12,25 +12,53 @@ export function newRoomCode(): string {
   return [...bytes].map((b) => alphabet[b % alphabet.length]).join('');
 }
 
+export function backoffDelayMs(attempt: number): number {
+  return Math.min(30_000, 1_000 * 2 ** Math.max(0, attempt));
+}
+
 export class RelayClient {
   private ws: WebSocket | null = null;
+  private attempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  private join: { room: string; role: RelayRole; name: string } | null = null;
+  private autoReconnect = false;
   id = '';
   onPresence?: (cameras: PresenceCamera[]) => void;
   onRequest?: (from: string) => void;
   onSignal?: (from: string, msg: unknown) => void;
   onCandidate?: (from: string, candidate: RTCIceCandidateInit) => void;
+  onReconnecting?: (attempt: number, delayMs: number) => void;
 
   constructor(private url: string) {}
 
-  connect(room: string, role: RelayRole, name: string): Promise<void> {
+  connect(room: string, role: RelayRole, name: string, opts: { autoReconnect?: boolean } = {}): Promise<void> {
+    this.join = { room, role, name };
+    this.autoReconnect = opts.autoReconnect ?? false;
+    return this.open();
+  }
+
+  private open(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(`${this.url}?room=${encodeURIComponent(room)}`);
+      let settled = false;
+      const join = this.join!;
+      const ws = new WebSocket(`${this.url}?room=${encodeURIComponent(join.room)}`);
       this.ws = ws;
       ws.onopen = () => {
-        this.send({ type: 'join', role, name });
+        this.attempts = 0;
+        settled = true;
+        this.send({ type: 'join', role: join.role, name: join.name });
         resolve();
       };
-      ws.onerror = () => reject(new Error('relay: erreur de connexion'));
+      ws.onerror = () => {
+        if (!settled) {
+          settled = true;
+          reject(new Error('relay: erreur de connexion'));
+        }
+        this.scheduleReconnect();
+      };
+      ws.onclose = () => {
+        this.scheduleReconnect();
+      };
       ws.onmessage = (ev) => {
         let m: Record<string, unknown>;
         try {
@@ -59,6 +87,16 @@ export class RelayClient {
     });
   }
 
+  private scheduleReconnect(): void {
+    if (!this.autoReconnect || !this.join || this.reconnectTimer) return;
+    const delay = backoffDelayMs(this.attempts++);
+    this.onReconnecting?.(this.attempts, delay);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined;
+      void this.open().catch(() => undefined);
+    }, delay);
+  }
+
   send(m: unknown): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(m));
   }
@@ -76,6 +114,9 @@ export class RelayClient {
   }
 
   close(): void {
+    this.autoReconnect = false;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = undefined;
     this.ws?.close();
     this.ws = null;
   }
