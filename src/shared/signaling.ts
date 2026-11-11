@@ -33,7 +33,7 @@ export function decodeMessage(text: string): SignalMessage {
   const trimmed = text.trim();
   if (!trimmed.startsWith(`${PROTOCOL_PREFIX}:`)) throw new Error('bad prefix');
   const bytes = fromBase64Url(trimmed.slice(PROTOCOL_PREFIX.length + 1));
-  const json = inflate(bytes, { to: 'string' }) as string;
+  const json = inflate(bytes, { toText: true }) as string;
   const msg = JSON.parse(json) as SignalMessage;
   if (msg.v !== 1 || (msg.t !== 'offer' && msg.t !== 'answer') || typeof msg.sdp !== 'string') {
     throw new Error('bad message');
