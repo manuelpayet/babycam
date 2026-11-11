@@ -5,6 +5,7 @@ import { decodeMessage, encodeMessage, toQrChunks } from '../../shared/signaling
 import { QrCarousel, qs } from '../../shared/ui';
 import { CameraPeers, iceServersFromLocation, type AlertKind } from '../../shared/webrtc';
 import { NoiseDetector } from '../../shared/detection/noise';
+import { MotionDetector } from '../../shared/detection/motion';
 
 applyTranslations();
 const langSelect = document.querySelector<HTMLSelectElement>('#lang-select');
@@ -51,6 +52,11 @@ async function start(): Promise<void> {
     onLevel: (dbfs) => peers?.sendToAll({ type: 'level', dbfs: Math.round(dbfs) }),
   });
   noiseDet.start();
+  motionDet = new MotionDetector(preview, {
+    sensitivity: Number(motionSens.value),
+    onTrigger: (ratio) => onAlert('motion', Math.round(ratio * 1000) / 10),
+  });
+  motionDet.start();
   setStatusKey('camera.status.running');
   startBtn.disabled = true;
   stopBtn.disabled = false;
@@ -59,6 +65,8 @@ async function start(): Promise<void> {
 function stop(): void {
   noiseDet?.stop();
   noiseDet = null;
+  motionDet?.stop();
+  motionDet = null;
   stream?.getTracks().forEach((track) => track.stop());
   stream = null;
   preview.srcObject = null;
@@ -93,10 +101,14 @@ stopBtn.disabled = true;
 setStatusKey('camera.status.idle');
 
 const noiseThreshold = qs<HTMLInputElement>('#noise-threshold');
+const motionSens = qs<HTMLInputElement>('#motion-sens');
 const flash = qs<HTMLDivElement>('#flash');
 const NOISE_KEY = 'babycam.noiseThreshold';
+const MOTION_KEY = 'babycam.motionSens';
 noiseThreshold.value = localStorage.getItem(NOISE_KEY) ?? '70';
+motionSens.value = localStorage.getItem(MOTION_KEY) ?? '50';
 let noiseDet: NoiseDetector | null = null;
+let motionDet: MotionDetector | null = null;
 
 function onAlert(kind: AlertKind, level: number): void {
   peers?.sendToAll({ type: 'alert', kind, level, ts: Date.now() });
@@ -113,6 +125,11 @@ function onAlert(kind: AlertKind, level: number): void {
 noiseThreshold.addEventListener('input', () => {
   localStorage.setItem(NOISE_KEY, noiseThreshold.value);
   if (noiseDet) noiseDet.threshold = Number(noiseThreshold.value);
+});
+
+motionSens.addEventListener('input', () => {
+  localStorage.setItem(MOTION_KEY, motionSens.value);
+  if (motionDet) motionDet.sensitivity = Number(motionSens.value);
 });
 
 const pairBtn = qs<HTMLButtonElement>('#pair-btn');
