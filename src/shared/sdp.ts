@@ -59,6 +59,32 @@ export function filterSdpByVideoCodec(sdp: string, mimeType: string): string {
   return mungeSdp(sdp, { videoMime: mimeType });
 }
 
+const SLIM_DROP_PREFIXES = ['a=ssrc', 'a=msid', 'a=rid:', 'a=simulcast'];
+
+export function slimSdpForQr(sdp: string): string {
+  const out: string[] = [];
+  for (const line of sdp.split('\r\n')) {
+    if (SLIM_DROP_PREFIXES.some((p) => line.startsWith(p))) continue;
+    if (line.startsWith('a=candidate:') && (!/\sudp\s/.test(line) || !line.includes('typ host'))) continue;
+    out.push(line);
+  }
+  return out.join('\r\n');
+}
+
 export function mungeSdpAggressive(sdp: string, videoMime?: string): string {
-  return mungeSdp(sdp, { videoMime, audioMime: 'audio/opus', dropExtmap: true });
+  return slimSdpForQr(mungeSdp(sdp, { videoMime, audioMime: 'audio/opus', dropExtmap: true }));
+}
+
+export function videoMimeFromSdp(sdp: string): string | undefined {
+  let inVideo = false;
+  for (const line of sdp.split('\r\n')) {
+    if (line.startsWith('m=')) {
+      inVideo = line.startsWith('m=video');
+      continue;
+    }
+    if (!inVideo) continue;
+    const m = /^a=rtpmap:\d+\s+([^/\s]+)\/\d+/.exec(line);
+    if (m) return `video/${m[1].toLowerCase()}`;
+  }
+  return undefined;
 }

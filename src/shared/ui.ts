@@ -1,9 +1,15 @@
+import { BUILD_ID } from './build';
 import { renderQr } from './qr';
 
 export function qs<T extends Element>(selector: string): T {
   const el = document.querySelector<T>(selector);
   if (!el) throw new Error(`élément introuvable: ${selector}`);
   return el;
+}
+
+export function setBuildBadge(): void {
+  const el = document.querySelector('#build-badge');
+  if (el) el.textContent = `v${BUILD_ID}`;
 }
 
 export class QrCarousel {

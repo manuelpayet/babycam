@@ -5,6 +5,10 @@ on:
     branches: ['**']
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -22,5 +26,9 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - run: npx playwright install --with-deps chromium
+      - name: Installer Chromium Playwright (deps apt en best-effort, jamais bloquant)
+        run: |
+          npx playwright install chromium
+          timeout 120 npx playwright install --with-deps chromium \
+            || echo "deps apt indisponibles (miroirs Ubuntu injoignables) : les libs requises sont déjà présentes sur ubuntu-latest, on continue sans"
       - run: npx playwright test --pass-with-no-tests
