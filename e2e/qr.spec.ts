@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import jsQR from 'jsqr';
-import { toQrChunks } from '../src/shared/signaling';
+import { decodeMessage, toQrChunks } from '../src/shared/signaling';
 import { debugParams, shot } from './helpers';
 import { killMockRelay, startMockRelay } from './mock-relay';
 
@@ -36,6 +36,17 @@ test('QR d offre : UN seul QR en mode LAN (sans STUN), décodable et identique a
 
   const qrText = await decodeCanvas(page, '#qr-canvas');
   expect(qrText).toBe(chunks[0]);
+
+  const codec = await page.locator('#video-codec').inputValue();
+  const msg = decodeMessage(payload);
+  const lines = msg.sdp.split('\r\n');
+  const mVideo = lines.find((l) => l.startsWith('m=video'))!;
+  expect(mVideo.split(' ').slice(3)).toHaveLength(1);
+  expect(msg.sdp).toContain(codec.split('/')[1]);
+  const mAudio = lines.find((l) => l.startsWith('m=audio'))!;
+  expect(mAudio.split(' ').slice(3)).toHaveLength(1);
+  expect(msg.sdp).toContain('opus');
+  expect(msg.sdp).not.toContain('a=extmap:');
 
   await shot(page, 'I3.2-camera-qr-single');
 });

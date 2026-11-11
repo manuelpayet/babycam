@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterSdpByVideoCodec } from './sdp';
+import { filterSdpByVideoCodec, mungeSdpAggressive } from './sdp';
 
 const SDP = [
   'v=0',
@@ -48,5 +48,50 @@ describe('filterSdpByVideoCodec', () => {
     const out = filterSdpByVideoCodec(SDP, 'VIDEO/vp8');
     expect(out).toContain('a=rtpmap:96 VP8/90000');
     expect(out).not.toContain('H264');
+  });
+});
+
+const SDP_FULL = [
+  'v=0',
+  'm=audio 9 UDP/TLS/RTP/SAVPF 111 0 8',
+  'a=rtpmap:111 opus/48000/2',
+  'a=rtpmap:0 PCMU/8000',
+  'a=rtpmap:8 PCMA/8000',
+  'a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level',
+  'm=video 9 UDP/TLS/RTP/SAVPF 96 97 98 99',
+  'a=rtpmap:96 VP8/90000',
+  'a=rtpmap:97 H264/90000',
+  'a=rtpmap:98 VP9/90000',
+  'a=rtpmap:99 rtx/90000',
+  'a=fmtp:99 apt=96',
+  'a=extmap:3 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time',
+  'a=mid:0',
+  'a=ssrc:1001 cname:abc',
+  'a=ice-ufrag:xyz',
+].join('\r\n');
+
+describe('mungeSdpAggressive (QR sans relais)', () => {
+  it('ne garde que le codec vidéo choisi et opus en audio, et supprime les extmap', () => {
+    const out = mungeSdpAggressive(SDP_FULL, 'video/VP8');
+    const mVideo = out.split('\r\n').find((l) => l.startsWith('m=video'))!;
+    expect(mVideo).toBe('m=video 9 UDP/TLS/RTP/SAVPF 96');
+    const mAudio = out.split('\r\n').find((l) => l.startsWith('m=audio'))!;
+    expect(mAudio).toBe('m=audio 9 UDP/TLS/RTP/SAVPF 111');
+    expect(out).toContain('a=rtpmap:111 opus/48000/2');
+    expect(out).not.toContain('PCMU');
+    expect(out).not.toContain('H264');
+    expect(out).not.toContain('VP9');
+    expect(out).not.toContain('rtx');
+    expect(out).not.toContain('a=extmap:');
+    expect(out).toContain('a=mid:0');
+    expect(out).toContain('a=ssrc:1001 cname:abc');
+    expect(out).toContain('a=ice-ufrag:xyz');
+  });
+
+  it('garde toute la section vidéo si le codec demandé est absent', () => {
+    const out = mungeSdpAggressive(SDP_FULL, 'video/AV1');
+    const mVideo = out.split('\r\n').find((l) => l.startsWith('m=video'))!;
+    expect(mVideo).toBe('m=video 9 UDP/TLS/RTP/SAVPF 96 97 98 99');
+    expect(out).not.toContain('a=extmap:');
   });
 });
