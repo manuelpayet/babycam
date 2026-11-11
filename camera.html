@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#1e1b4b" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <title>Babycam — Caméra</title>
+  </head>
+  <body>
+    <main class="page">
+      <header class="topbar">
+        <a class="btn btn-small" href="./index.html">←</a>
+        <h1 data-i18n="camera.title">Caméra</h1>
+        <select id="lang-select">
+          <option value="fr">FR</option>
+          <option value="en">EN</option>
+        </select>
+      </header>
+      <p id="status" class="status" data-i18n="camera.status.idle">Caméra arrêtée</p>
+      <video id="preview" muted autoplay playsinline></video>
+      <div class="controls">
+        <button id="start-btn" class="btn btn-primary" data-i18n="camera.start">Démarrer</button>
+        <button id="stop-btn" class="btn" data-i18n="camera.stop">Arrêter</button>
+        <button id="switch-cam" class="btn" data-i18n="camera.switch">Changer de caméra</button>
+        <button id="torch-btn" class="btn" data-i18n="camera.torch">Torche</button>
+      </div>
+      <p id="wakelock-status" class="hint"></p>
+      <section id="pairing">
+        <h2 data-i18n="camera.pairing">Appairage</h2>
+        <button id="pair-btn" class="btn" data-i18n="camera.pair.btn">Appairer un viewer (QR)</button>
+        <div id="qr-box" hidden>
+          <canvas id="qr-canvas" width="280" height="280"></canvas>
+          <span id="qr-pos" class="hint"></span>
+          <label class="hint" data-i18n="camera.pair.offerLabel">Offre (QR ou copier-coller) :</label>
+          <textarea id="offer-payload" readonly></textarea>
+        </div>
+        <div id="answer-box">
+          <label class="hint" data-i18n="camera.pair.answerLabel">Réponse du viewer (coller ici) :</label>
+          <textarea id="answer-payload"></textarea>
+          <button id="apply-answer-btn" class="btn" data-i18n="camera.pair.applyAnswer">Connecter</button>
+        </div>
+        <h2 data-i18n="camera.viewers">Viewers connectés</h2>
+        <ul id="viewers"></ul>
+      </section>
+      <section id="discovery">
+        <h2 data-i18n="camera.discovery">Découverte (salon)</h2>
+        <button id="create-room-btn" class="btn" data-i18n="camera.createRoom">Créer un salon</button>
+        <p id="room-code" class="status" hidden></p>
+        <p id="relay-status" class="hint"></p>
+      </section>
+      <section id="detection">
+        <h2 data-i18n="camera.detect">Détection</h2>
+        <label class="hint" data-i18n="camera.noiseThreshold" for="noise-threshold">Seuil de bruit</label>
+        <input id="noise-threshold" type="range" min="0" max="100" value="70" />
+        <label class="hint" data-i18n="camera.motionSens" for="motion-sens">Sensibilité mouvement</label>
+        <input id="motion-sens" type="range" min="1" max="100" value="50" />
+      </section>
+    </main>
+    <div id="flash" hidden></div>
+    <script type="module" src="./src/pages/camera/main.ts"></script>
+  </body>
+</html>

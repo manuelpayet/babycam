@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#1e1b4b" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <title>Babycam — Viewer</title>
+  </head>
+  <body>
+    <main class="page">
+      <header class="topbar">
+        <a class="btn btn-small" href="./index.html">←</a>
+        <h1 data-i18n="viewer.title">Viewer</h1>
+        <select id="lang-select">
+          <option value="fr">FR</option>
+          <option value="en">EN</option>
+        </select>
+      </header>
+      <p id="status" class="status" data-i18n="viewer.status.idle">Non appairé</p>
+      <div id="alert-banner" hidden></div>
+      <video id="remote" autoplay playsinline></video>
+      <div class="controls">
+        <button id="unmute-btn" class="btn" data-i18n="viewer.unmute">Activer le son</button>
+        <button id="fullscreen-btn" class="btn" data-i18n="viewer.fullscreen">Plein écran</button>
+      </div>
+      <section id="pairing">
+        <h2 data-i18n="viewer.pairing">Appairage</h2>
+        <label class="hint" data-i18n="viewer.nameLabel">Votre nom :</label>
+        <input id="viewer-name" type="text" value="Viewer" />
+        <button id="scan-offer-btn" class="btn" data-i18n="viewer.scan">Scanner le QR de la caméra</button>
+        <div id="qr-reader" hidden></div>
+        <label class="hint" data-i18n="viewer.pasteOffer">Ou coller l’offre :</label>
+        <textarea id="offer-input"></textarea>
+        <button id="apply-offer-btn" class="btn" data-i18n="viewer.applyOffer">Générer la réponse</button>
+        <div id="qr-box-answer" hidden>
+          <canvas id="qr-canvas-answer" width="280" height="280"></canvas>
+          <span id="qr-pos-answer" class="hint"></span>
+          <label class="hint" data-i18n="viewer.answerLabel">Réponse à montrer à la caméra (QR ou copier) :</label>
+          <textarea id="answer-payload" readonly></textarea>
+        </div>
+      </section>
+      <section id="discovery">
+        <h2 data-i18n="viewer.discovery">Découverte (salon)</h2>
+        <input id="room-input" type="text" maxlength="6" placeholder="CODE" />
+        <button id="join-room-btn" class="btn" data-i18n="viewer.joinRoom">Rejoindre le salon</button>
+        <ul id="camera-list"></ul>
+      </section>
+      <section id="alerts">
+        <h2 data-i18n="viewer.alerts">Alertes</h2>
+        <ul id="alert-history"></ul>
+      </section>
+    </main>
+    <script type="module" src="./src/pages/viewer/main.ts"></script>
+  </body>
+</html>

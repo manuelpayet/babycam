@@ -188,7 +188,7 @@ babycam/
 
 ## 13. Méthodologie : incréments testés, un commit par incrément
 
-Chaque incrément est petit, testé (unitaires vitest, plus E2E Playwright quand pertinent — §14), et livré par **un seul commit** sur la branche de travail. Règle : un commit n'est poussé que si la CI est verte (lint + tests unitaires + E2E + build). Les PR sont des regroupements d'incréments.
+Chaque incrément est petit, testé (unitaires vitest, plus E2E Playwright quand pertinent — §14), et livré par **un seul commit** sur la branche de travail. Règle : un commit n'est poussé que si la CI est verte (lint + tests unitaires + E2E + build). Les PR sont des regroupements d'incréments. **Visuels** : les tests E2E produisent des captures d'écran dans `docs/screenshots/`, commitées avec l'incrément pour voir l'interface évoluer.
 
 ### Phase 0 — squelette
 - I0.1 : init projet Vite + TS, `base: '/babycam/'`, 3 pages vides, build OK → commit (CI lint/build).
@@ -221,7 +221,8 @@ Notifications push (hors 100 % statique), enregistrement d'extraits sur alerte, 
 - **E2E (Playwright)** : `playwright.config.ts` + `e2e/`, exécutés en CI (Chromium headless uniquement ; iOS reste best effort, test manuel). Points clés :
   - médias factices Chromium (`--use-fake-device-for-media-stream`, `--use-fake-ui-for-media-stream`) pour tester la page caméra sans matériel ;
   - **deux contextes Playwright = deux « appareils »** : appairage QR de bout en bout (scan simulé en décodant le QR affiché avec `jsqr`, ou via le secours copier-coller), flux A/V vérifié, multi-viewers (1 caméra → 2 viewers), alertes (alerte injectée → bannière + historique assertés côté viewer) ;
-  - PWA : manifest servi, service worker enregistré, app shell disponible offline.
+  - PWA : manifest servi, service worker enregistré, app shell disponible offline ;
+  - **captures d'écran** : chaque scénario E2E sauvegarde des screenshots dans `docs/screenshots/` (commitées avec l'incrément) pour visualiser l'évolution de l'UI.
 - **Manuels (checklist)** : deux vrais téléphones sur le même Wi-Fi — appairage QR, flux vidéo+audio, alerte bruit (claquement de mains), alerte mouvement, wake lock, révocation, multi-viewers, installation PWA, iOS Safari (best effort).
 - **CI** : `.github/workflows/ci.yml` — lint + `vitest` + `playwright test` + `vite build` à chaque push/PR ; déploiement Pages séparé sur `main` (§10). Règle : **1 incrément = 1 commit**, poussé uniquement si la CI est verte.
 

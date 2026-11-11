@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#1e1b4b" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <title>Babycam</title>
+  </head>
+  <body>
+    <main class="home">
+      <h1 data-i18n="app.title">Babycam</h1>
+      <p data-i18n="home.subtitle">Surveille bébé depuis un autre appareil.</p>
+      <div class="home-actions">
+        <a class="btn btn-primary" href="./camera.html" data-i18n="home.camera">Je surveille (caméra)</a>
+        <a class="btn" href="./viewer.html" data-i18n="home.viewer">Je regarde (viewer)</a>
+      </div>
+      <label class="lang">
+        <span data-i18n="home.language">Langue</span>
+        <select id="lang-select">
+          <option value="fr">Français</option>
+          <option value="en">English</option>
+        </select>
+      </label>
+    </main>
+    <script type="module" src="./src/pages/home/main.ts"></script>
+  </body>
+</html>
