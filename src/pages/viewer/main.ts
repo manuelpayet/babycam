@@ -50,8 +50,8 @@ function requestReconnect(): void {
   }, 3000);
 }
 
-function makePeer(): ViewerPeer {
-  const p = new ViewerPeer(iceServersFromLocation(), viewerName.value.trim() || 'Viewer');
+function makePeer(iceServers: RTCIceServer[]): ViewerPeer {
+  const p = new ViewerPeer(iceServers, viewerName.value.trim() || 'Viewer');
   p.onTrack = (s) => {
     remote.srcObject = s;
     remote.muted = true;
@@ -105,7 +105,7 @@ async function applyOffer(): Promise<void> {
     return;
   }
   setStatus(t('viewer.offerReceived'));
-  peer = makePeer();
+  peer = makePeer([]);
   try {
     const answer = await peer.acceptOffer(msg);
     const message = encodeMessage(answer);
@@ -163,7 +163,7 @@ joinRoomBtn.addEventListener('click', async () => {
         const answer = await peer.renegotiate(m);
         relay?.signal(from, answer);
       } else {
-        peer = makePeer();
+        peer = makePeer(iceServersFromLocation());
         const answer = await peer.acceptOffer(m);
         relay?.signal(from, answer);
       }

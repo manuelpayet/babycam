@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import jsQR from 'jsqr';
+import { toQrChunks } from '../src/shared/signaling';
 import { debugParams, shot } from './helpers';
 
 async function decodeCanvas(page: import('@playwright/test').Page, selector: string): Promise<string | null> {
@@ -13,7 +14,7 @@ async function decodeCanvas(page: import('@playwright/test').Page, selector: str
   return result?.data ?? null;
 }
 
-test('QR d offre généré, affiché en carrousel et décodable', async ({ page }) => {
+test('QR d offre : UN seul QR en mode LAN (sans STUN), décodable et identique au payload', async ({ page }) => {
   await page.goto('camera.html' + debugParams());
   await page.click('#start-btn');
   await page.waitForFunction(() => {
@@ -23,14 +24,19 @@ test('QR d offre généré, affiché en carrousel et décodable', async ({ page 
 
   await page.click('#pair-btn');
   await expect(page.locator('#qr-box')).toBeVisible();
+  await expect(page.locator('#answer-box')).toBeVisible();
 
   const payload = await page.locator('#offer-payload').inputValue();
   expect(payload.startsWith('BCAM1:')).toBe(true);
 
-  const qrText = await decodeCanvas(page, '#qr-canvas');
-  expect(qrText).toMatch(/^BCAM1\/\d+\/\d+\//);
+  const chunks = toQrChunks(payload);
+  expect(chunks.length).toBe(1);
+  expect(chunks[0]).toMatch(/^BCAM1\/1\/1\//);
 
-  await shot(page, 'I1.4-camera-qr');
+  const qrText = await decodeCanvas(page, '#qr-canvas');
+  expect(qrText).toBe(chunks[0]);
+
+  await shot(page, 'I3.2-camera-qr-single');
 });
 
 test('appairage refusé si la caméra est arrêtée', async ({ page }) => {

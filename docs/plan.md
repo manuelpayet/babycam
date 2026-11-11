@@ -214,6 +214,7 @@ Chaque incrément est petit, testé (unitaires vitest, plus E2E Playwright quand
 
 ### Phase 3 — optionnel
 - I3.1 : **reconnexion automatique** — `restartIce()` + ré-offre côté caméra (via relais auto, ou QR à re-scanner), reconnexion WS du relais avec backoff + re-join + ré-annonce de présence, re-request viewer sur `disconnected`/`failed` ; E2E : coupure réseau simulée (`setOffline`) et redémarrage du relais.
+- I3.2 : **appairage QR simplifié (réseau local)** — mode QR sans STUN (`iceServers: []`) → SDP compact → **un seul QR** offre et réponse (chunk 4200, carrousel en fallback), la caméra **scanne la réponse avec la caméra frontale** (plus de copier-coller), copier-coller en secours ; E2E : un seul chunk + QR décodé identique au payload.
 - Notifications push (hors 100 % statique), enregistrement d'extraits sur alerte, audio bidirectionnel, zone d'intérêt pour le mouvement.
 
 ## 14. Tests
