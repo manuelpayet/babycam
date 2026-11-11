@@ -61,6 +61,11 @@ interface PeerEntry {
   name: string;
 }
 
+export interface PeerManagerOptions {
+  trickle?: boolean;
+  onCandidate?: (peerId: string, candidate: RTCIceCandidateInit) => void;
+}
+
 export class CameraPeers {
   private peers = new Map<string, PeerEntry>();
   onPeerChange?: () => void;
@@ -68,6 +73,7 @@ export class CameraPeers {
   constructor(
     private stream: MediaStream,
     private iceServers: RTCIceServer[],
+    private opts: PeerManagerOptions = {},
   ) {}
 
   get list(): PeerInfo[] {
@@ -77,6 +83,9 @@ export class CameraPeers {
   async createOffer(): Promise<{ id: string; msg: SignalMessage }> {
     const id = crypto.randomUUID();
     const pc = new RTCPeerConnection({ iceServers: this.iceServers });
+    pc.onicecandidate = (e) => {
+      if (e.candidate) this.opts.onCandidate?.(id, e.candidate.toJSON());
+    };
     const dc = pc.createDataChannel(CHANNEL_LABEL);
     this.peers.set(id, { pc, dc, name: '…' });
     dc.onmessage = (ev) => {
@@ -94,7 +103,7 @@ export class CameraPeers {
     pc.onconnectionstatechange = () => this.onPeerChange?.();
     for (const track of this.stream.getTracks()) pc.addTrack(track, this.stream);
     await pc.setLocalDescription(await pc.createOffer());
-    await waitIceComplete(pc, 4000);
+    if (!this.opts.trickle) await waitIceComplete(pc, 4000);
     return { id, msg: { v: 1, t: 'offer', sdp: pc.localDescription!.sdp } };
   }
 
@@ -102,6 +111,10 @@ export class CameraPeers {
     const peer = this.peers.get(id);
     if (!peer) throw new Error('unknown peer');
     await peer.pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp });
+  }
+
+  addCandidate(id: string, candidate: RTCIceCandidateInit): void {
+    void this.peers.get(id)?.pc.addIceCandidate(candidate).catch(() => undefined);
   }
 
   sendToAll(m: DataMessage): void {
@@ -128,14 +141,19 @@ export class ViewerPeer {
   onTrack?: (stream: MediaStream) => void;
   onData?: (m: DataMessage) => void;
   onState?: (state: string) => void;
+  onCandidate?: (candidate: RTCIceCandidateInit) => void;
 
   constructor(
     private iceServers: RTCIceServer[],
     private name: string,
+    private trickle = false,
   ) {}
 
   async acceptOffer(msg: SignalMessage): Promise<SignalMessage> {
     this.pc = new RTCPeerConnection({ iceServers: this.iceServers });
+    this.pc.onicecandidate = (e) => {
+      if (e.candidate) this.onCandidate?.(e.candidate.toJSON());
+    };
     this.pc.ontrack = (ev) => {
       for (const track of ev.streams[0].getTracks()) this.remoteStream.addTrack(track);
       this.onTrack?.(this.remoteStream);
@@ -157,7 +175,11 @@ export class ViewerPeer {
     this.pc.onconnectionstatechange = () => this.onState?.(this.pc?.connectionState ?? 'new');
     await this.pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
     await this.pc.setLocalDescription(await this.pc.createAnswer());
-    await waitIceComplete(this.pc, 4000);
+    if (!this.trickle) await waitIceComplete(this.pc, 4000);
     return { v: 1, t: 'answer', sdp: this.pc.localDescription!.sdp };
+  }
+
+  addCandidate(candidate: RTCIceCandidateInit): void {
+    void this.pc?.addIceCandidate(candidate).catch(() => undefined);
   }
 }

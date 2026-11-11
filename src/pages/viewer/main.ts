@@ -5,6 +5,7 @@ import { QrScanner } from '../../shared/scanner';
 import { QrCarousel, qs } from '../../shared/ui';
 import { iceServersFromLocation, ViewerPeer, type DataMessage } from '../../shared/webrtc';
 import { playAlertSound, pushAlertHistory, showAlertBanner, vibrate } from '../../shared/alerts';
+import { RelayClient } from '../../shared/relay';
 
 applyTranslations();
 const langSelect = document.querySelector<HTMLSelectElement>('#lang-select');
@@ -25,6 +26,9 @@ const answerPayload = qs<HTMLTextAreaElement>('#answer-payload');
 const viewerName = qs<HTMLInputElement>('#viewer-name');
 const alertBanner = qs<HTMLDivElement>('#alert-banner');
 const alertHistory = qs<HTMLUListElement>('#alert-history');
+const roomInput = qs<HTMLInputElement>('#room-input');
+const joinRoomBtn = qs<HTMLButtonElement>('#join-room-btn');
+const cameraList = qs<HTMLUListElement>('#camera-list');
 
 function setStatus(text: string): void {
   status.textContent = text;
@@ -33,6 +37,31 @@ function setStatus(text: string): void {
 let peer: ViewerPeer | null = null;
 let answerCarousel: QrCarousel | null = null;
 const dataLog: DataMessage[] = [];
+let relay: RelayClient | null = null;
+const relayParam = new URLSearchParams(location.search).get('relay');
+
+function makePeer(): ViewerPeer {
+  const p = new ViewerPeer(iceServersFromLocation(), viewerName.value.trim() || 'Viewer');
+  p.onTrack = (s) => {
+    remote.srcObject = s;
+    remote.muted = true;
+    void remote.play().catch(() => undefined);
+  };
+  p.onData = (m) => {
+    dataLog.push(m);
+    if (m.type === 'alert') {
+      showAlertBanner(alertBanner, m.kind);
+      playAlertSound();
+      vibrate();
+      pushAlertHistory(alertHistory, m.kind, m.ts);
+    }
+  };
+  p.onState = (state) => {
+    if (state === 'connected') setStatus(t('viewer.status.connected'));
+    else if (state === 'failed' || state === 'disconnected' || state === 'closed') setStatus(t('viewer.status.lost'));
+  };
+  return p;
+}
 
 const collector = createChunkCollector();
 
@@ -59,25 +88,7 @@ async function applyOffer(): Promise<void> {
     return;
   }
   setStatus(t('viewer.offerReceived'));
-  peer = new ViewerPeer(iceServersFromLocation(), viewerName.value.trim() || 'Viewer');
-  peer.onTrack = (s) => {
-    remote.srcObject = s;
-    remote.muted = true;
-    void remote.play().catch(() => undefined);
-  };
-  peer.onData = (m) => {
-    dataLog.push(m);
-    if (m.type === 'alert') {
-      showAlertBanner(alertBanner, m.kind);
-      playAlertSound();
-      vibrate();
-      pushAlertHistory(alertHistory, m.kind, m.ts);
-    }
-  };
-  peer.onState = (state) => {
-    if (state === 'connected') setStatus(t('viewer.status.connected'));
-    else if (state === 'failed' || state === 'disconnected' || state === 'closed') setStatus(t('viewer.status.lost'));
-  };
+  peer = makePeer();
   try {
     const answer = await peer.acceptOffer(msg);
     const message = encodeMessage(answer);
@@ -92,6 +103,50 @@ async function applyOffer(): Promise<void> {
 }
 
 applyOfferBtn.addEventListener('click', () => void applyOffer());
+
+joinRoomBtn.addEventListener('click', async () => {
+  if (!relayParam) {
+    setStatus(t('camera.relayNeeded'));
+    return;
+  }
+  const room = roomInput.value.trim().toUpperCase();
+  if (room.length !== 6) {
+    setStatus(t('viewer.badRoom'));
+    return;
+  }
+  relay = new RelayClient(relayParam);
+  try {
+    await relay.connect(room, 'viewer', viewerName.value.trim() || 'Viewer');
+  } catch (err) {
+    setStatus(String(err));
+    return;
+  }
+  setStatus(t('viewer.status.joined'));
+  relay.onPresence = (cameras) => {
+    cameraList.innerHTML = '';
+    for (const cam of cameras) {
+      const li = document.createElement('li');
+      const btn = document.createElement('button');
+      btn.className = 'btn';
+      btn.textContent = cam.name || cam.id;
+      btn.addEventListener('click', () => relay?.request(cam.id));
+      li.append(btn);
+      cameraList.append(li);
+    }
+  };
+  relay.onSignal = async (from, msg) => {
+    const m = msg as SignalMessage;
+    if (m.t === 'offer' && !peer) {
+      peer = makePeer();
+      try {
+        const answer = await peer.acceptOffer(m);
+        relay?.signal(from, answer);
+      } catch (err) {
+        setStatus(String(err));
+      }
+    }
+  };
+});
 
 unmuteBtn.addEventListener('click', () => {
   remote.muted = false;

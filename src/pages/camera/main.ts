@@ -6,6 +6,8 @@ import { QrCarousel, qs } from '../../shared/ui';
 import { CameraPeers, iceServersFromLocation, type AlertKind } from '../../shared/webrtc';
 import { NoiseDetector } from '../../shared/detection/noise';
 import { MotionDetector } from '../../shared/detection/motion';
+import { RelayClient, newRoomCode } from '../../shared/relay';
+import type { SignalMessage } from '../../shared/signaling';
 
 applyTranslations();
 const langSelect = document.querySelector<HTMLSelectElement>('#lang-select');
@@ -190,11 +192,55 @@ applyAnswerBtn.addEventListener('click', async () => {
   }
 });
 
+const relayParam = new URLSearchParams(location.search).get('relay');
+const createRoomBtn = qs<HTMLButtonElement>('#create-room-btn');
+const roomCodeEl = qs<HTMLParagraphElement>('#room-code');
+const relayStatus = qs<HTMLParagraphElement>('#relay-status');
+let relay: RelayClient | null = null;
+const relayFromByPeer = new Map<string, string>();
+
+createRoomBtn.addEventListener('click', async () => {
+  if (!stream) {
+    setStatusKey('camera.needStream');
+    return;
+  }
+  if (!relayParam) {
+    setStatusKey('camera.relayNeeded');
+    return;
+  }
+  peers ??= new CameraPeers(stream, iceServersFromLocation());
+  peers.onPeerChange = () => renderViewers();
+  relay = new RelayClient(relayParam);
+  const room = newRoomCode();
+  try {
+    await relay.connect(room, 'camera', 'Caméra');
+  } catch (err) {
+    setStatus(String(err));
+    return;
+  }
+  roomCodeEl.textContent = room;
+  roomCodeEl.hidden = false;
+  relayStatus.textContent = relayParam;
+  relay.onRequest = async (from) => {
+    const { id, msg } = await peers!.createOffer();
+    relayFromByPeer.set(id, from);
+    relay!.signal(from, msg);
+  };
+  relay.onSignal = async (from, msg) => {
+    const peerId = [...relayFromByPeer.entries()].find(([, f]) => f === from)?.[0];
+    if (peerId && (msg as SignalMessage).t === 'answer') {
+      await peers!.acceptAnswer(peerId, msg as SignalMessage);
+      setStatusKey('camera.pair.connected');
+    }
+  };
+});
+
 if (new URLSearchParams(location.search).get('debug') === '1') {
   (window as unknown as Record<string, unknown>).__babycam = {
     getStream: () => stream,
     wakeLockActive: () => wakeLock.active,
     getPeers: () => peers?.list ?? [],
     sendToAll: (m: unknown) => peers?.sendToAll(m as never),
+    getRoomCode: () => roomCodeEl.textContent ?? '',
   };
 }
