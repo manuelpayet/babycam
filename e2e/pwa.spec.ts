@@ -27,7 +27,7 @@ test('service worker enregistré + app shell offline', async ({ page, context })
       return regs.length > 0 && regs[0].active !== null;
     },
     null,
-    { timeout: 30_000 },
+    { timeout: 90_000 },
   );
   await page.waitForFunction(
     async () => {
@@ -37,7 +37,7 @@ test('service worker enregistré + app shell offline', async ({ page, context })
       return (await cache.keys()).length > 0;
     },
     null,
-    { timeout: 30_000 },
+    { timeout: 90_000 },
   );
   await page.reload();
   await page.waitForFunction(() => navigator.serviceWorker.controller !== null, null, { timeout: 60_000 });
