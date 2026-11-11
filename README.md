@@ -28,9 +28,11 @@ Un petit relais Cloudflare Worker (`relay/`, Durable Object `RoomDO`) ne sert qu
 cd relay
 npm install
 npx wrangler login
-npx wrangler deploy   # → https://babycam-relay.<sous-domaine>.workers.dev
+npx wrangler deploy   # → https://babycam-relay.<sous-domaine>.workers.dev (à relancer après chaque modif de relay/)
 npx wrangler tail     # logs en temps réel
 ```
+
+Le salon vit dans un Durable Object : son état est stocké dans les attachments des WebSockets (`serializeAttachment`), donc il survit à l'éviction de l'objet par Cloudflare.
 
 L'URL déployée est renseignée dans `src/shared/relay.ts` (`DEFAULT_RELAY_URL` = `wss://babycam-relay.veille-cron.workers.dev`). Tant qu'un relais est configuré, le bouton « Appairer » de la caméra affiche un **petit QR de salon** (`BCAM1/R/CODE`) et le SDP passe par le relais. `?relay=<wss://…>` remplace le relais dans l'URL, `?relay=0` le désactive (mode QR SDP en local, utilisé par les tests E2E).
 

@@ -61,7 +61,7 @@ const diagLog = qs<HTMLUListElement>('#diag-log');
 
 function renderDiag(): void {
   diagRelay.textContent = relayParam
-    ? `relais ${relayParam} — ws=${relay ? relay.wsState : 3}${relay ? ` — id=${relay.id || '…'}` : ''}`
+    ? `relais ${relayParam} — ws=${relay ? relay.wsState : 3}${relay ? ` — id=${relay.id || '…'}` : ''} — cameras=${relay?.cameras.length ?? 0}`
     : 'relais : désactivé (mode QR local)';
   diagPeers.innerHTML = '';
   const pc = peer?.pc;
@@ -180,15 +180,6 @@ async function joinRoom(): Promise<void> {
     return;
   }
   relay = new RelayClient(relayParam);
-  try {
-    await relay.connect(room, 'viewer', viewerName.value.trim() || 'Viewer', { autoReconnect: true });
-  } catch (err) {
-    setStatus(String(err));
-    addDiagLog(diagLog, `erreur join salon: ${String(err)}`);
-    return;
-  }
-  setStatus(t('viewer.status.joined'));
-  addDiagLog(diagLog, `salon rejoint: ${room}`);
   relay.onPresence = (cameras) => {
     cameraList.innerHTML = '';
     for (const cam of cameras) {
@@ -234,6 +225,15 @@ async function joinRoom(): Promise<void> {
       addDiagLog(diagLog, `erreur signal salon: ${String(err)}`);
     }
   };
+  try {
+    await relay.connect(room, 'viewer', viewerName.value.trim() || 'Viewer', { autoReconnect: true });
+  } catch (err) {
+    setStatus(String(err));
+    addDiagLog(diagLog, `erreur join salon: ${String(err)}`);
+    return;
+  }
+  setStatus(t('viewer.status.joined'));
+  addDiagLog(diagLog, `salon rejoint: ${room}`);
 }
 
 joinRoomBtn.addEventListener('click', () => void joinRoom());

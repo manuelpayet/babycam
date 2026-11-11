@@ -340,12 +340,11 @@ async function startRelayRoom(relayUrl: string): Promise<string> {
   ensurePeers(iceServersFromLocation(), 'relay');
   relay = new RelayClient(relayUrl);
   const room = newRoomCode();
-  await relay.connect(room, 'camera', 'Caméra', { autoReconnect: true });
+  const pendingFrom = new Set<string>();
   relay.onReconnecting = (attempt, delay) => {
     relayStatus.textContent = `${relayUrl} — reconnexion #${attempt} dans ${delay} ms`;
   };
   relayStatus.textContent = relayUrl;
-  const pendingFrom = new Set<string>();
   relay.onRequest = async (from) => {
     const existing = [...relayFromByPeer.entries()].find(([, f]) => f === from);
     if (existing) {
@@ -383,6 +382,7 @@ async function startRelayRoom(relayUrl: string): Promise<string> {
       addDiagLog(diagLog, `réponse appliquée pour ${from.slice(0, 8)}…`);
     }
   };
+  await relay.connect(room, 'camera', 'Caméra', { autoReconnect: true });
   addDiagLog(diagLog, `salon créé: ${room}`);
   return room;
 }

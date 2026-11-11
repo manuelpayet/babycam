@@ -32,7 +32,12 @@ export class RelayClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private join: { room: string; role: RelayRole; name: string } | null = null;
   private autoReconnect = false;
+  private presenceList: PresenceCamera[] = [];
   id = '';
+
+  get cameras(): PresenceCamera[] {
+    return this.presenceList;
+  }
   onPresence?: (cameras: PresenceCamera[]) => void;
   onRequest?: (from: string) => void;
   onSignal?: (from: string, msg: unknown) => void;
@@ -85,7 +90,8 @@ export class RelayClient {
             this.id = m.id as string;
             break;
           case 'presence':
-            this.onPresence?.(m.cameras as PresenceCamera[]);
+            this.presenceList = (m.cameras as PresenceCamera[]) ?? [];
+            this.onPresence?.(this.presenceList);
             break;
           case 'request':
             this.onRequest?.(m.from as string);
