@@ -6,6 +6,16 @@ test('page caméra : démarrage avec médias factices, pistes audio+vidéo', asy
   await shot(page, 'I1.1-camera-off');
   await expect(page.locator('#start-btn')).toBeEnabled();
 
+  const wakeLockProbe = await page.evaluate(async () => {
+    try {
+      const sentinel = await navigator.wakeLock?.request('screen');
+      await sentinel?.release();
+      return !!sentinel;
+    } catch {
+      return false;
+    }
+  });
+
   await page.click('#start-btn');
   await page.waitForFunction(() => {
     const video = document.querySelector<HTMLVideoElement>('#preview');
@@ -13,7 +23,10 @@ test('page caméra : démarrage avec médias factices, pistes audio+vidéo', asy
   });
   await expect(page.locator('#status')).toContainText(/cours|running/i);
   await expect(page.locator('#start-btn')).toBeDisabled();
-  await shot(page, 'I1.1-camera-on');
+  if (wakeLockProbe) {
+    await expect(page.locator('#wakelock-status')).toContainText(/allumé|on/i);
+  }
+  await shot(page, 'I1.2-camera-on');
 
   const kinds = await page.evaluate(() => {
     const video = document.querySelector<HTMLVideoElement>('#preview')!;

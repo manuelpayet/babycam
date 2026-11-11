@@ -1,5 +1,6 @@
 import '../../shared/style.css';
 import { applyTranslations, initLangSelect, t } from '../../shared/i18n';
+import { WakeLockManager } from '../../shared/wakelock';
 
 applyTranslations();
 const langSelect = document.querySelector<HTMLSelectElement>('#lang-select');
@@ -14,6 +15,15 @@ const torchBtn = document.querySelector<HTMLButtonElement>('#torch-btn')!;
 
 let stream: MediaStream | null = null;
 let facing: 'environment' | 'user' = 'environment';
+
+const wakeLock = new WakeLockManager();
+const wakeLockStatus = document.querySelector<HTMLParagraphElement>('#wakelock-status')!;
+wakeLock.onChange = (active) => {
+  wakeLockStatus.textContent = active ? `🔒 ${t('camera.wakelock.on')}` : '';
+};
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && stream) void wakeLock.onVisible();
+});
 
 function setStatus(text: string): void {
   status.textContent = text;
@@ -30,6 +40,7 @@ async function start(): Promise<void> {
   });
   preview.srcObject = stream;
   await preview.play().catch(() => undefined);
+  await wakeLock.request();
   setStatusKey('camera.status.running');
   startBtn.disabled = true;
   stopBtn.disabled = false;
@@ -39,6 +50,7 @@ function stop(): void {
   stream?.getTracks().forEach((track) => track.stop());
   stream = null;
   preview.srcObject = null;
+  void wakeLock.release();
   setStatusKey('camera.status.idle');
   startBtn.disabled = false;
   stopBtn.disabled = true;
@@ -71,5 +83,6 @@ setStatusKey('camera.status.idle');
 if (new URLSearchParams(location.search).get('debug') === '1') {
   (window as unknown as Record<string, unknown>).__babycam = {
     getStream: () => stream,
+    wakeLockActive: () => wakeLock.active,
   };
 }

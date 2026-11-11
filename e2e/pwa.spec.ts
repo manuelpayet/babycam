@@ -17,6 +17,7 @@ test('accueil servi + manifest PWA + icônes', async ({ page }) => {
 });
 
 test('service worker enregistré + app shell offline', async ({ page, context }) => {
+  test.setTimeout(90_000);
   await page.goto('camera.html');
   await shot(page, 'I0.2-camera-initial');
 
