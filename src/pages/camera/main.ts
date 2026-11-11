@@ -167,6 +167,15 @@ let currentVideoCodec: string | undefined;
   });
 }
 
+// Le choix du codec ne sert qu'à alléger le QR en mode local (?relay=0) :
+// masqué dès qu'un relais est configuré (mode salon par défaut, payload illimité).
+{
+  const codecLabel = qs<HTMLLabelElement>('label[for="video-codec"]');
+  const hide = relayUrlFromLocation() !== null;
+  codecSel.hidden = hide;
+  codecLabel.hidden = hide;
+}
+
 const pairBtn = qs<HTMLButtonElement>('#pair-btn');
 const qrBox = qs<HTMLDivElement>('#qr-box');
 const qrCanvas = qs<HTMLCanvasElement>('#qr-canvas');

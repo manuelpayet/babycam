@@ -53,6 +53,9 @@ test('I3.6 salon (relais) : trickle ICE, tous les codecs vidéo offerts, panneau
   const mVideo = remoteSdp.split('\r\n').find((l) => l.startsWith('m=video'))!;
   expect(mVideo.split(' ').slice(3).length).toBeGreaterThan(1);
 
+  await expect(cam.locator('#video-codec')).toBeHidden();
+  await expect(cam.locator('label[for="video-codec"]')).toBeHidden();
+
   await cam.locator('#diag').evaluate((d) => {
     (d as HTMLDetailsElement).open = true;
   });
@@ -85,6 +88,8 @@ test('I3.6 QR local (relay=0) : 1 seul codec vidéo dans l offre + diag indique 
   const msg = decodeMessage(payload);
   const mVideo = msg.sdp!.split('\r\n').find((l) => l.startsWith('m=video'))!;
   expect(mVideo.split(' ').slice(3)).toHaveLength(1);
+
+  await expect(cam.locator('#video-codec')).toBeVisible();
 
   await expect(cam.locator('#diag-relay')).toContainText(/désactivé|disabled/i);
   await cam.locator('#diag').evaluate((d) => {
