@@ -11,11 +11,31 @@ test('détection de bruit : seuil à 0 + micro factice → alerte "noise" reçue
   await startCamera(cam);
   await pairViaPaste(cam, view);
 
-  await cam.evaluate(() => {
+  await view.waitForFunction(
+    () => {
+      const meter = document.querySelector<HTMLDivElement>('#noise-meter');
+      const bc = (window as unknown as { __babycam?: { getLastLevel?: () => number | null } }).__babycam;
+      return !!meter && parseFloat(meter.style.width || '0') > 0 && typeof bc?.getLastLevel?.() === 'number';
+    },
+    null,
+    { timeout: 15_000 },
+  );
+
+  await view.evaluate(() => {
     const el = document.querySelector<HTMLInputElement>('#noise-threshold')!;
     el.value = '0';
     el.dispatchEvent(new Event('input'));
   });
+
+  await cam.waitForFunction(
+    () => {
+      const bc = (window as unknown as { __babycam?: { getNoiseThresholdDbfs?: () => number | null } })
+        .__babycam;
+      return bc?.getNoiseThresholdDbfs?.() === -60;
+    },
+    null,
+    { timeout: 10_000 },
+  );
 
   await view.waitForFunction(
     () => {

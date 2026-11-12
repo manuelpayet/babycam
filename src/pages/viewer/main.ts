@@ -6,6 +6,7 @@ import { QrCarousel, qs, setBuildBadge } from '../../shared/ui';
 import { registerPwa } from '../../shared/pwa';
 import { mungeSdpAggressive, videoMimeFromSdp } from '../../shared/sdp';
 import { iceServersFromLocation, ViewerPeer, type DataMessage } from '../../shared/webrtc';
+import { thresholdToDbfs } from '../../shared/detection/noise';
 import { playAlertSound, pushAlertHistory, showAlertBanner, vibrate } from '../../shared/alerts';
 import { RelayClient, relayUrlFromLocation } from '../../shared/relay';
 import { addDiagLog, candidateAddress } from '../../shared/diag';
@@ -34,6 +35,41 @@ const alertHistory = qs<HTMLUListElement>('#alert-history');
 const roomInput = qs<HTMLInputElement>('#room-input');
 const joinRoomBtn = qs<HTMLButtonElement>('#join-room-btn');
 const cameraList = qs<HTMLUListElement>('#camera-list');
+const noiseThreshold = qs<HTMLInputElement>('#noise-threshold');
+const motionSens = qs<HTMLInputElement>('#motion-sens');
+const noiseMeter = qs<HTMLDivElement>('#noise-meter');
+const noiseDbfs = qs<HTMLSpanElement>('#noise-dbfs');
+const NOISE_KEY = 'babycam.noiseThreshold';
+const MOTION_KEY = 'babycam.motionSens';
+noiseThreshold.value = localStorage.getItem(NOISE_KEY) ?? '70';
+motionSens.value = localStorage.getItem(MOTION_KEY) ?? '50';
+let lastDbfs: number | null = null;
+
+function sendSettings(): void {
+  peer?.send({
+    type: 'settings',
+    noiseThreshold: Number(noiseThreshold.value),
+    motionSens: Number(motionSens.value),
+  });
+}
+
+noiseThreshold.addEventListener('input', () => {
+  localStorage.setItem(NOISE_KEY, noiseThreshold.value);
+  sendSettings();
+});
+
+motionSens.addEventListener('input', () => {
+  localStorage.setItem(MOTION_KEY, motionSens.value);
+  sendSettings();
+});
+
+function updateNoiseMeter(dbfs: number): void {
+  lastDbfs = dbfs;
+  const pct = Math.max(0, Math.min(100, ((dbfs + 60) / 60) * 100));
+  noiseMeter.style.width = `${pct}%`;
+  noiseMeter.classList.toggle('hot', dbfs > thresholdToDbfs(Number(noiseThreshold.value)));
+  noiseDbfs.textContent = `${Math.round(dbfs)} dBFS`;
+}
 
 function setStatus(text: string): void {
   status.textContent = text;
@@ -90,8 +126,11 @@ function makePeer(iceServers: RTCIceServer[], trickle = false): ViewerPeer {
       playAlertSound();
       vibrate();
       pushAlertHistory(alertHistory, m.kind, m.ts);
+    } else if (m.type === 'level') {
+      updateNoiseMeter(m.dbfs);
     }
   };
+  p.onOpen = () => sendSettings();
   p.onState = (state) => {
     if (state === 'connected') {
       clearTimeout(reconnectTimer);
@@ -254,5 +293,6 @@ if (new URLSearchParams(location.search).get('debug') === '1') {
     getPeerState: () => peer?.pc?.connectionState ?? null,
     getDataLog: () => dataLog,
     getRemoteSdp: () => peer?.pc?.remoteDescription?.sdp ?? null,
+    getLastLevel: () => lastDbfs,
   };
 }

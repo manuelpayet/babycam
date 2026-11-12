@@ -11,11 +11,22 @@ test('détection de mouvement : sensibilité max + vidéo factice animée → al
   await startCamera(cam);
   await pairViaPaste(cam, view);
 
-  await cam.evaluate(() => {
+  await view.evaluate(() => {
     const el = document.querySelector<HTMLInputElement>('#motion-sens')!;
     el.value = '100';
     el.dispatchEvent(new Event('input'));
   });
+
+  await cam.waitForFunction(
+    () => {
+      const bc = (window as unknown as { __babycam?: { getMotionRatioThreshold?: () => number | null } })
+        .__babycam;
+      const r = bc?.getMotionRatioThreshold?.();
+      return typeof r === 'number' && r <= 0.01;
+    },
+    null,
+    { timeout: 10_000 },
+  );
 
   await view.waitForFunction(
     () => {

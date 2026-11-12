@@ -44,14 +44,21 @@ describe('motion', () => {
     expect(lumaDiffRatio(a, b)).toBe(0);
   });
 
+  it('lumaDiffRatio : seuil pixel explicite plus fin (15) compte un delta de 20', () => {
+    const a = frame(8, 8, 100);
+    const b = frame(8, 8, 120);
+    expect(lumaDiffRatio(a, b, 15)).toBe(1);
+    expect(lumaDiffRatio(a, b)).toBe(0);
+  });
+
   it('lumaDiffRatio : tailles différentes → erreur', () => {
     expect(() => lumaDiffRatio(frame(8, 8, 0), frame(4, 4, 0))).toThrow('size mismatch');
   });
 
-  it('sensitivityToRatio : décroît avec la sensibilité, bornes 0.396 → 0.02', () => {
-    expect(sensitivityToRatio(1)).toBeCloseTo(0.396, 3);
-    expect(sensitivityToRatio(100)).toBeCloseTo(0.02, 3);
-    expect(sensitivityToRatio(50)).toBeCloseTo(0.21, 3);
+  it('sensitivityToRatio : décroît avec la sensibilité, bornes 0.104 → 0.005', () => {
+    expect(sensitivityToRatio(1)).toBeCloseTo(0.104, 3);
+    expect(sensitivityToRatio(100)).toBeCloseTo(0.005, 3);
+    expect(sensitivityToRatio(50)).toBeCloseTo(0.055, 3);
     expect(sensitivityToRatio(100)).toBeLessThan(sensitivityToRatio(1));
   });
 });

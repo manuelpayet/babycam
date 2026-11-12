@@ -10,7 +10,7 @@ export function lumaDiffRatio(a: Uint8ClampedArray, b: Uint8ClampedArray, pixelT
 }
 
 export function sensitivityToRatio(sensitivity: number): number {
-  return 0.4 - (sensitivity / 100) * 0.38;
+  return 0.105 - (sensitivity / 100) * 0.1;
 }
 
 export interface MotionDetectorOptions {
@@ -19,6 +19,7 @@ export interface MotionDetectorOptions {
   intervalMs?: number;
   cooldownMs?: number;
   width?: number;
+  pixelThreshold?: number;
 }
 
 export class MotionDetector {
@@ -54,7 +55,7 @@ export class MotionDetector {
       this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
       const frame = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height).data;
       if (this.prev) {
-        const ratio = lumaDiffRatio(frame, this.prev);
+        const ratio = lumaDiffRatio(frame, this.prev, this.opts.pixelThreshold ?? 15);
         const now = performance.now();
         if (ratio > this.ratioThreshold && now - this.lastTrigger >= cooldownMs) {
           this.lastTrigger = now;

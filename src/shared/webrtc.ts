@@ -46,7 +46,12 @@ export interface LevelMessage {
   type: 'level';
   dbfs: number;
 }
-export type DataMessage = AlertMessage | HelloMessage | LevelMessage;
+export interface SettingsMessage {
+  type: 'settings';
+  noiseThreshold: number;
+  motionSens: number;
+}
+export type DataMessage = AlertMessage | HelloMessage | LevelMessage | SettingsMessage;
 
 export const CHANNEL_LABEL = 'babycam';
 
@@ -88,6 +93,7 @@ export class CameraPeers {
   private peers = new Map<string, PeerEntry>();
   private lastRegen = new Map<string, number>();
   onPeerChange?: () => void;
+  onData?: (peerId: string, m: DataMessage) => void;
 
   constructor(
     private stream: MediaStream,
@@ -125,6 +131,7 @@ export class CameraPeers {
     dc.onmessage = (ev) => {
       try {
         const m = JSON.parse(ev.data as string) as DataMessage;
+        this.onData?.(id, m);
         if (m.type === 'hello') {
           const entry = this.peers.get(id);
           if (entry) entry.name = m.name;
@@ -206,6 +213,11 @@ export class ViewerPeer {
   onData?: (m: DataMessage) => void;
   onState?: (state: string) => void;
   onCandidate?: (candidate: RTCIceCandidateInit) => void;
+  onOpen?: () => void;
+
+  send(m: DataMessage): void {
+    if (this.dc?.readyState === 'open') this.dc.send(JSON.stringify(m));
+  }
 
   constructor(
     private iceServers: RTCIceServer[],
@@ -238,6 +250,7 @@ export class ViewerPeer {
       this.dc.onopen = () => {
         const hello: HelloMessage = { type: 'hello', name: this.name };
         this.dc?.send(JSON.stringify(hello));
+        this.onOpen?.();
       };
     };
     this.pc.onconnectionstatechange = () => this.onState?.(this.pc?.connectionState ?? 'new');

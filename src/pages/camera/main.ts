@@ -5,7 +5,7 @@ import { createChunkCollector, decodeMessage, encodeMessage, encodeRoom, toQrChu
 import { QrCarousel, qs, setBuildBadge } from '../../shared/ui';
 import { registerPwa } from '../../shared/pwa';
 import { QrScanner } from '../../shared/scanner';
-import { CameraPeers, iceServersFromLocation, type AlertKind } from '../../shared/webrtc';
+import { CameraPeers, iceServersFromLocation, type AlertKind, type SettingsMessage } from '../../shared/webrtc';
 import { NoiseDetector } from '../../shared/detection/noise';
 import { MotionDetector } from '../../shared/detection/motion';
 import { RelayClient, newRoomCode, relayUrlFromLocation } from '../../shared/relay';
@@ -54,13 +54,13 @@ async function start(): Promise<void> {
   await preview.play().catch(() => undefined);
   await wakeLock.request();
   noiseDet = new NoiseDetector(stream, {
-    threshold: Number(noiseThreshold.value),
+    threshold: storedNumber(NOISE_KEY, 70),
     onTrigger: (dbfs) => onAlert('noise', Math.round(dbfs)),
     onLevel: (dbfs) => peers?.sendToAll({ type: 'level', dbfs: Math.round(dbfs) }),
   });
   noiseDet.start();
   motionDet = new MotionDetector(preview, {
-    sensitivity: Number(motionSens.value),
+    sensitivity: storedNumber(MOTION_KEY, 50),
     onTrigger: (ratio) => onAlert('motion', Math.round(ratio * 1000) / 10),
   });
   motionDet.start();
@@ -107,15 +107,23 @@ torchBtn.addEventListener('click', () => {
 stopBtn.disabled = true;
 setStatusKey('camera.status.idle');
 
-const noiseThreshold = qs<HTMLInputElement>('#noise-threshold');
-const motionSens = qs<HTMLInputElement>('#motion-sens');
 const flash = qs<HTMLDivElement>('#flash');
 const NOISE_KEY = 'babycam.noiseThreshold';
 const MOTION_KEY = 'babycam.motionSens';
-noiseThreshold.value = localStorage.getItem(NOISE_KEY) ?? '70';
-motionSens.value = localStorage.getItem(MOTION_KEY) ?? '50';
 let noiseDet: NoiseDetector | null = null;
 let motionDet: MotionDetector | null = null;
+
+function storedNumber(key: string, fallback: number): number {
+  const v = Number(localStorage.getItem(key) ?? fallback);
+  return Number.isFinite(v) ? v : fallback;
+}
+
+function applySettings(m: SettingsMessage): void {
+  localStorage.setItem(NOISE_KEY, String(m.noiseThreshold));
+  localStorage.setItem(MOTION_KEY, String(m.motionSens));
+  if (noiseDet) noiseDet.threshold = m.noiseThreshold;
+  if (motionDet) motionDet.sensitivity = m.motionSens;
+}
 
 function onAlert(kind: AlertKind, level: number): void {
   peers?.sendToAll({ type: 'alert', kind, level, ts: Date.now() });
@@ -128,16 +136,6 @@ function onAlert(kind: AlertKind, level: number): void {
   }, 600);
   void wakeLock.onVisible();
 }
-
-noiseThreshold.addEventListener('input', () => {
-  localStorage.setItem(NOISE_KEY, noiseThreshold.value);
-  if (noiseDet) noiseDet.threshold = Number(noiseThreshold.value);
-});
-
-motionSens.addEventListener('input', () => {
-  localStorage.setItem(MOTION_KEY, motionSens.value);
-  if (motionDet) motionDet.sensitivity = Number(motionSens.value);
-});
 
 const codecSel = qs<HTMLSelectElement>('#video-codec');
 const CODEC_KEY = 'babycam.videoCodec';
@@ -253,6 +251,9 @@ function ensurePeers(iceServers: RTCIceServer[], mode: 'qr' | 'relay'): CameraPe
       },
     });
     peers.onPeerChange = () => renderViewers();
+    peers.onData = (_id, m) => {
+      if (m.type === 'settings') applySettings(m);
+    };
   }
   return peers;
 }
@@ -414,5 +415,7 @@ if (new URLSearchParams(location.search).get('debug') === '1') {
     getPeers: () => peers?.list ?? [],
     sendToAll: (m: unknown) => peers?.sendToAll(m as never),
     getRoomCode: () => roomCodeEl.textContent ?? '',
+    getNoiseThresholdDbfs: () => noiseDet?.thresholdDbfs ?? null,
+    getMotionRatioThreshold: () => motionDet?.ratioThreshold ?? null,
   };
 }
