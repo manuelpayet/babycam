@@ -61,6 +61,7 @@ export const DICTS: Record<Lang, Record<string, string>> = {
     'camera.codecLabel': 'Codec vidéo :',
     'camera.pair.reconnect': 'Reconnexion : re-scanner le QR si demandé',
     'diag.title': 'Diagnostic',
+    'meter.label': 'Niveau sonore',
   },
   en: {
     'app.title': 'Babycam',
@@ -119,6 +120,7 @@ export const DICTS: Record<Lang, Record<string, string>> = {
     'camera.codecLabel': 'Video codec:',
     'camera.pair.reconnect': 'Reconnecting: re-scan the QR if asked',
     'diag.title': 'Diagnostics',
+    'meter.label': 'Sound level',
   },
 };
 

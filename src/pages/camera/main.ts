@@ -10,6 +10,7 @@ import { NoiseDetector } from '../../shared/detection/noise';
 import { MotionDetector } from '../../shared/detection/motion';
 import { RelayClient, newRoomCode, relayUrlFromLocation } from '../../shared/relay';
 import { addDiagLog, candidateAddress } from '../../shared/diag';
+import { updateVolMeter } from '../../shared/volmeter';
 import type { SignalMessage } from '../../shared/signaling';
 
 applyTranslations();
@@ -56,7 +57,11 @@ async function start(): Promise<void> {
   noiseDet = new NoiseDetector(stream, {
     threshold: Number(noiseThreshold.value),
     onTrigger: (dbfs) => onAlert('noise', Math.round(dbfs)),
-    onLevel: (dbfs) => peers?.sendToAll({ type: 'level', dbfs: Math.round(dbfs) }),
+    onLevel: (dbfs) => {
+      const level = Number.isFinite(dbfs) ? Math.round(dbfs) : -100;
+      peers?.sendToAll({ type: 'level', dbfs: level });
+      updateVolMeter(volFill, level, volDbfs);
+    },
   });
   noiseDet.start();
   motionDet = new MotionDetector(preview, {
@@ -77,6 +82,7 @@ function stop(): void {
   stream?.getTracks().forEach((track) => track.stop());
   stream = null;
   preview.srcObject = null;
+  updateVolMeter(volFill, -Infinity, volDbfs);
   void wakeLock.release();
   setStatusKey('camera.status.idle');
   startBtn.disabled = false;
@@ -110,6 +116,8 @@ setStatusKey('camera.status.idle');
 const noiseThreshold = qs<HTMLInputElement>('#noise-threshold');
 const motionSens = qs<HTMLInputElement>('#motion-sens');
 const flash = qs<HTMLDivElement>('#flash');
+const volFill = qs<HTMLElement>('#vol-fill');
+const volDbfs = qs<HTMLSpanElement>('#vol-dbfs');
 const NOISE_KEY = 'babycam.noiseThreshold';
 const MOTION_KEY = 'babycam.motionSens';
 noiseThreshold.value = localStorage.getItem(NOISE_KEY) ?? '70';

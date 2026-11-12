@@ -21,6 +21,11 @@
       <p id="status" class="status" data-i18n="viewer.status.idle">Non appairé</p>
       <div id="alert-banner" hidden></div>
       <video id="remote" autoplay playsinline></video>
+      <div class="volmeter">
+        <span data-i18n="meter.label">Niveau sonore</span>
+        <div class="meter"><div id="vol-fill"></div></div>
+        <span id="vol-dbfs" class="hint"></span>
+      </div>
       <div class="controls">
         <button id="unmute-btn" class="btn" data-i18n="viewer.unmute">Activer le son</button>
         <button id="fullscreen-btn" class="btn" data-i18n="viewer.fullscreen">Plein écran</button>

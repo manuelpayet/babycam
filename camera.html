@@ -20,6 +20,11 @@
       </header>
       <p id="status" class="status" data-i18n="camera.status.idle">Caméra arrêtée</p>
       <video id="preview" muted autoplay playsinline></video>
+      <div class="volmeter">
+        <span data-i18n="meter.label">Niveau sonore</span>
+        <div class="meter"><div id="vol-fill"></div></div>
+        <span id="vol-dbfs" class="hint"></span>
+      </div>
       <div class="controls">
         <button id="start-btn" class="btn btn-primary" data-i18n="camera.start">Démarrer</button>
         <button id="stop-btn" class="btn" data-i18n="camera.stop">Arrêter</button>
