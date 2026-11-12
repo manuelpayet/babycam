@@ -8,7 +8,7 @@
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <title>Babycam — Caméra</title>
   </head>
-  <body>
+  <body class="page-camera">
     <main class="page">
       <header class="topbar">
         <a class="btn btn-small" href="./index.html">←</a>
@@ -25,27 +25,41 @@
         <button id="stop-btn" class="btn" data-i18n="camera.stop">Arrêter</button>
         <button id="switch-cam" class="btn" data-i18n="camera.switch">Changer de caméra</button>
         <button id="torch-btn" class="btn" data-i18n="camera.torch">Torche</button>
+        <button id="pair-btn" class="btn btn-primary" data-i18n="camera.pair.btn">Appairer un viewer (QR)</button>
       </div>
       <p id="wakelock-status" class="hint"></p>
+      <section id="viewers-sec">
+        <h2 data-i18n="camera.viewers">Viewers connectés</h2>
+        <ul id="viewers"></ul>
+      </section>
       <section id="pairing">
         <h2 data-i18n="camera.pairing">Appairage</h2>
-        <p class="hint" data-i18n="camera.pair.steps">1. « Appairer » affiche un QR → scanne-le depuis le viewer. 2. Le viewer affiche un QR de réponse → « Scanner la réponse » ici (caméra frontale).</p>
-        <button id="pair-btn" class="btn" data-i18n="camera.pair.btn">Appairer un viewer (QR)</button>
-        <div id="qr-box" hidden>
+        <ol class="wizard-steps">
+          <li data-i18n="camera.wiz.step1">Lancer</li>
+          <li data-i18n="camera.wiz.step2">QR à montrer</li>
+          <li data-i18n="camera.wiz.step3">Réponse du viewer</li>
+          <li data-i18n="camera.wiz.step4">Connecté</li>
+        </ol>
+        <div class="wizard-pane" id="wiz-start">
+          <p class="hint" data-i18n="camera.wiz.startHint">Démarrez la caméra, puis lancez l’appairage : un QR apparaîtra à scanner depuis le viewer.</p>
+          <button id="pair-start-btn" class="btn btn-primary" data-i18n="camera.pair.btn">Appairer un viewer (QR)</button>
+        </div>
+        <div class="wizard-pane" id="qr-box" hidden>
+          <p class="hint" data-i18n="camera.wiz.offerHint">Montrez ce QR au viewer (ou copiez l’offre ci-dessous).</p>
           <canvas id="qr-canvas" width="280" height="280"></canvas>
           <span id="qr-pos" class="hint"></span>
           <label class="hint" data-i18n="camera.pair.offerLabel">Offre (QR ou copier-coller) :</label>
           <textarea id="offer-payload" readonly></textarea>
         </div>
-        <div id="answer-box" hidden>
+        <div class="wizard-pane" id="answer-box" hidden>
+          <p class="hint" data-i18n="camera.wiz.answerHint">Le viewer affiche alors un QR de réponse : scannez-le avec la caméra frontale, ou collez-la ci-dessous.</p>
           <button id="scan-answer-btn" class="btn btn-primary" data-i18n="camera.scanAnswer">Scanner la réponse (caméra frontale)</button>
           <div id="qr-reader-answer" hidden></div>
           <label class="hint" data-i18n="camera.pair.answerLabel">Réponse du viewer (copier-coller en secours) :</label>
           <textarea id="answer-payload"></textarea>
           <button id="apply-answer-btn" class="btn" data-i18n="camera.pair.applyAnswer">Connecter</button>
         </div>
-        <h2 data-i18n="camera.viewers">Viewers connectés</h2>
-        <ul id="viewers"></ul>
+        <p class="wizard-pane status" id="pair-done" hidden data-i18n="camera.wiz.done">✓ Viewer connecté — retour à la caméra…</p>
       </section>
       <section id="discovery">
         <h2 data-i18n="camera.discovery">Découverte (salon)</h2>

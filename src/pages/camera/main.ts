@@ -2,7 +2,7 @@ import '../../shared/style.css';
 import { applyTranslations, initLangSelect, t } from '../../shared/i18n';
 import { WakeLockManager } from '../../shared/wakelock';
 import { createChunkCollector, decodeMessage, encodeMessage, encodeRoom, toQrChunks } from '../../shared/signaling';
-import { QrCarousel, qs, setBuildBadge } from '../../shared/ui';
+import { QrCarousel, qs, setBuildBadge, Wizard, goView, initHashViews } from '../../shared/ui';
 import { registerPwa } from '../../shared/pwa';
 import { QrScanner } from '../../shared/scanner';
 import { CameraPeers, iceServersFromLocation, type AlertKind, type SettingsMessage } from '../../shared/webrtc';
@@ -17,6 +17,7 @@ const langSelect = document.querySelector<HTMLSelectElement>('#lang-select');
 if (langSelect) initLangSelect(langSelect);
 registerPwa();
 setBuildBadge();
+initHashViews(false);
 
 const preview = qs<HTMLVideoElement>('#preview');
 const status = qs<HTMLParagraphElement>('#status');
@@ -175,7 +176,6 @@ let currentVideoCodec: string | undefined;
 }
 
 const pairBtn = qs<HTMLButtonElement>('#pair-btn');
-const qrBox = qs<HTMLDivElement>('#qr-box');
 const qrCanvas = qs<HTMLCanvasElement>('#qr-canvas');
 const qrPos = qs<HTMLSpanElement>('#qr-pos');
 const offerPayload = qs<HTMLTextAreaElement>('#offer-payload');
@@ -187,6 +187,12 @@ let peers: CameraPeers | null = null;
 let peersMode: 'qr' | 'relay' | null = null;
 let pendingPeerId: string | null = null;
 let carousel: QrCarousel | null = null;
+
+// Wizard d'appairage : étapes 0=démarrer, 1=QR à montrer, 2=réponse du viewer, 3=connecté.
+// En mode relais, l'étape 2 (réponse) passe par le relais : elle est sautée.
+const pairWizard = new Wizard(qs<HTMLElement>('#pairing'));
+if (relayUrlFromLocation()) pairWizard.skip(2);
+pairWizard.show(0);
 
 const diagRelay = qs<HTMLParagraphElement>('#diag-relay');
 const diagPeers = qs<HTMLUListElement>('#diag-peers');
@@ -242,7 +248,7 @@ function ensurePeers(iceServers: RTCIceServer[], mode: 'qr' | 'relay'): CameraPe
         } else {
           const message = encodeMessage(msg);
           offerPayload.value = message;
-          qrBox.hidden = false;
+          pairWizard.show(2);
           carousel?.stop();
           carousel = new QrCarousel(qrCanvas, qrPos, toQrChunks(message));
           void carousel.start();
@@ -258,7 +264,7 @@ function ensurePeers(iceServers: RTCIceServer[], mode: 'qr' | 'relay'): CameraPe
   return peers;
 }
 
-pairBtn.addEventListener('click', async () => {
+async function startPairing(): Promise<void> {
   if (!stream) {
     setStatusKey('camera.needStream');
     return;
@@ -269,8 +275,7 @@ pairBtn.addEventListener('click', async () => {
       const room = await startRelayRoom(relayUrl);
       const message = encodeRoom(room);
       offerPayload.value = message;
-      qrBox.hidden = false;
-      answerBox.hidden = true;
+      pairWizard.show(1);
       roomCodeEl.textContent = room;
       roomCodeEl.hidden = false;
       carousel?.stop();
@@ -288,15 +293,19 @@ pairBtn.addEventListener('click', async () => {
   pendingPeerId = id;
   const message = encodeMessage(msg);
   offerPayload.value = message;
-  qrBox.hidden = false;
-  answerBox.hidden = false;
+  pairWizard.show(2);
   carousel?.stop();
   carousel = new QrCarousel(qrCanvas, qrPos, toQrChunks(message));
   await carousel.start();
   setStatusKey('camera.pair.waiting');
-});
+}
 
-const answerBox = qs<HTMLDivElement>('#answer-box');
+pairBtn.addEventListener('click', () => {
+  goView('pair');
+  void startPairing();
+});
+qs<HTMLButtonElement>('#pair-start-btn').addEventListener('click', () => void startPairing());
+
 const scanAnswerBtn = qs<HTMLButtonElement>('#scan-answer-btn');
 const qrReaderAnswer = qs<HTMLDivElement>('#qr-reader-answer');
 
@@ -306,6 +315,8 @@ async function applyAnswer(): Promise<void> {
     const msg = decodeMessage(answerPayload.value);
     await peers.acceptAnswer(pendingPeerId, msg);
     carousel?.stop();
+    pairWizard.show(pairWizard.count);
+    goView('main');
     setStatusKey('camera.pair.connected');
   } catch (err) {
     setStatus(String(err));
@@ -379,6 +390,8 @@ async function startRelayRoom(relayUrl: string): Promise<string> {
     }
     if (peerId && m.t === 'answer' && typeof m.sdp === 'string') {
       await peers!.acceptAnswer(peerId, m);
+      pairWizard.show(pairWizard.count);
+      goView('main');
       setStatusKey('camera.pair.connected');
       addDiagLog(diagLog, `réponse appliquée pour ${from.slice(0, 8)}…`);
     }

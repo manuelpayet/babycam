@@ -2,7 +2,7 @@ import '../../shared/style.css';
 import { applyTranslations, initLangSelect, t } from '../../shared/i18n';
 import { createChunkCollector, decodeMessage, decodeRoom, encodeMessage, toQrChunks, type SignalMessage } from '../../shared/signaling';
 import { QrScanner } from '../../shared/scanner';
-import { QrCarousel, qs, setBuildBadge } from '../../shared/ui';
+import { QrCarousel, qs, setBuildBadge, Wizard, goView, initHashViews } from '../../shared/ui';
 import { registerPwa } from '../../shared/pwa';
 import { mungeSdpAggressive, videoMimeFromSdp } from '../../shared/sdp';
 import { iceServersFromLocation, ViewerPeer, type DataMessage } from '../../shared/webrtc';
@@ -16,6 +16,7 @@ const langSelect = document.querySelector<HTMLSelectElement>('#lang-select');
 if (langSelect) initLangSelect(langSelect);
 registerPwa();
 setBuildBadge();
+initHashViews(true);
 
 const status = qs<HTMLParagraphElement>('#status');
 const remote = qs<HTMLVideoElement>('#remote');
@@ -25,7 +26,6 @@ const scanBtn = qs<HTMLButtonElement>('#scan-offer-btn');
 const qrReader = qs<HTMLDivElement>('#qr-reader');
 const offerInput = qs<HTMLTextAreaElement>('#offer-input');
 const applyOfferBtn = qs<HTMLButtonElement>('#apply-offer-btn');
-const qrBoxAnswer = qs<HTMLDivElement>('#qr-box-answer');
 const qrCanvasAnswer = qs<HTMLCanvasElement>('#qr-canvas-answer');
 const qrPosAnswer = qs<HTMLSpanElement>('#qr-pos-answer');
 const answerPayload = qs<HTMLTextAreaElement>('#answer-payload');
@@ -70,6 +70,11 @@ function updateNoiseMeter(dbfs: number): void {
   noiseMeter.classList.toggle('hot', dbfs > thresholdToDbfs(Number(noiseThreshold.value)));
   noiseDbfs.textContent = `${Math.round(dbfs)} dBFS`;
 }
+
+// Wizard d'appairage : étapes 0=recevoir l'offre, 1=montrer la réponse, 2=connexion.
+const pairWizard = new Wizard(qs<HTMLElement>('#pairing'));
+const waitingText = qs<HTMLParagraphElement>('#wiz-waiting-text');
+pairWizard.show(0);
 
 function setStatus(text: string): void {
   status.textContent = text;
@@ -134,8 +139,13 @@ function makePeer(iceServers: RTCIceServer[], trickle = false): ViewerPeer {
   p.onState = (state) => {
     if (state === 'connected') {
       clearTimeout(reconnectTimer);
+      waitingText.textContent = t('viewer.status.connected');
+      pairWizard.show(pairWizard.count);
+      goView('main');
       setStatus(t('viewer.status.connected'));
     } else if (state === 'disconnected' || state === 'failed') {
+      waitingText.textContent = t('viewer.status.reconnecting');
+      pairWizard.show(2);
       setStatus(t('viewer.status.reconnecting'));
       requestReconnect();
     } else if (state === 'closed') {
@@ -196,7 +206,9 @@ async function applyOffer(): Promise<void> {
     const slim = { ...answer, sdp: mungeSdpAggressive(answer.sdp ?? '', videoMimeFromSdp(msg.sdp ?? '')) };
     const message = encodeMessage(slim);
     answerPayload.value = message;
-    qrBoxAnswer.hidden = false;
+    pairWizard.unskip(1);
+    pairWizard.show(2);
+    waitingText.textContent = t('viewer.wiz.waiting');
     answerCarousel?.stop();
     answerCarousel = new QrCarousel(qrCanvasAnswer, qrPosAnswer, toQrChunks(message));
     await answerCarousel.start();
@@ -271,6 +283,9 @@ async function joinRoom(): Promise<void> {
     addDiagLog(diagLog, `erreur join salon: ${String(err)}`);
     return;
   }
+  pairWizard.skip(1);
+  pairWizard.show(2);
+  waitingText.textContent = t('viewer.wiz.waiting');
   setStatus(t('viewer.status.joined'));
   addDiagLog(diagLog, `salon rejoint: ${room}`);
 }
