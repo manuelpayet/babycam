@@ -17,7 +17,7 @@ test('découverte par salon : la caméra publie sa présence, le viewer rejoint 
     const video = document.querySelector<HTMLVideoElement>('#preview');
     return !!video && !!video.srcObject && video.readyState >= 2;
   });
-  await cam.click('#create-room-btn');
+  await cam.click('#pair-btn');
   await expect(cam.locator('#room-code')).not.toBeHidden();
   const room = (await cam.locator('#room-code').textContent())!.trim();
   expect(room).toHaveLength(6);

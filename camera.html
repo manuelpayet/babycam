@@ -8,7 +8,7 @@
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <title>Babycam — Caméra</title>
   </head>
-  <body>
+  <body class="page-camera">
     <main class="page">
       <header class="topbar">
         <a class="btn btn-small" href="./index.html">←</a>
@@ -25,33 +25,34 @@
         <button id="stop-btn" class="btn" data-i18n="camera.stop">Arrêter</button>
         <button id="switch-cam" class="btn" data-i18n="camera.switch">Changer de caméra</button>
         <button id="torch-btn" class="btn" data-i18n="camera.torch">Torche</button>
+        <button id="pair-btn" class="btn btn-primary" data-i18n="camera.pair.btn">Appairer un viewer</button>
       </div>
       <p id="wakelock-status" class="hint"></p>
-      <section id="pairing">
-        <h2 data-i18n="camera.pairing">Appairage</h2>
-        <p class="hint" data-i18n="camera.pair.steps">1. « Appairer » affiche un QR → scanne-le depuis le viewer. 2. Le viewer affiche un QR de réponse → « Scanner la réponse » ici (caméra frontale).</p>
-        <button id="pair-btn" class="btn" data-i18n="camera.pair.btn">Appairer un viewer (QR)</button>
-        <div id="qr-box" hidden>
-          <canvas id="qr-canvas" width="280" height="280"></canvas>
-          <span id="qr-pos" class="hint"></span>
-          <label class="hint" data-i18n="camera.pair.offerLabel">Offre (QR ou copier-coller) :</label>
-          <textarea id="offer-payload" readonly></textarea>
-        </div>
-        <div id="answer-box" hidden>
-          <button id="scan-answer-btn" class="btn btn-primary" data-i18n="camera.scanAnswer">Scanner la réponse (caméra frontale)</button>
-          <div id="qr-reader-answer" hidden></div>
-          <label class="hint" data-i18n="camera.pair.answerLabel">Réponse du viewer (copier-coller en secours) :</label>
-          <textarea id="answer-payload"></textarea>
-          <button id="apply-answer-btn" class="btn" data-i18n="camera.pair.applyAnswer">Connecter</button>
-        </div>
+      <section id="viewers-sec">
         <h2 data-i18n="camera.viewers">Viewers connectés</h2>
         <ul id="viewers"></ul>
       </section>
-      <section id="discovery">
-        <h2 data-i18n="camera.discovery">Découverte (salon)</h2>
-        <button id="create-room-btn" class="btn" data-i18n="camera.createRoom">Créer un salon</button>
-        <p id="room-code" class="status" hidden></p>
-        <p id="relay-status" class="hint"></p>
+      <section id="pairing">
+        <h2 data-i18n="camera.pairing">Appairage</h2>
+        <ol class="wizard-steps">
+          <li data-i18n="camera.wiz.step1">Lancer</li>
+          <li data-i18n="camera.wiz.step2">Code de salon</li>
+          <li data-i18n="camera.wiz.step3">Connecté</li>
+        </ol>
+        <div class="wizard-pane" id="wiz-start">
+          <p class="hint" data-i18n="camera.wiz.startHint">Démarrez la caméra, puis lancez l’appairage : un code de salon (QR) apparaîtra pour le viewer.</p>
+          <button id="pair-start-btn" class="btn btn-primary" data-i18n="camera.pair.btn">Appairer un viewer</button>
+        </div>
+        <div class="wizard-pane" id="qr-box" hidden>
+          <p class="hint" data-i18n="camera.wiz.roomHint">Scannez ce QR depuis le viewer, ou donnez-lui le code de salon.</p>
+          <canvas id="qr-canvas" width="280" height="280"></canvas>
+          <span id="qr-pos" class="hint"></span>
+          <p id="room-code" class="status" hidden></p>
+          <label class="hint" data-i18n="camera.pair.roomLabel">Code de salon (QR ou copier) :</label>
+          <textarea id="room-payload" readonly></textarea>
+          <p id="relay-status" class="hint"></p>
+        </div>
+        <p class="wizard-pane status" id="pair-done" hidden data-i18n="camera.wiz.done">✓ Viewer connecté — retour à la caméra…</p>
       </section>
       <details id="diag">
         <summary data-i18n="diag.title">Diagnostic</summary>
@@ -59,10 +60,6 @@
         <ul id="diag-peers" class="hint"></ul>
         <ul id="diag-log" class="hint"></ul>
       </details>
-      <section id="settings">
-        <label class="hint" data-i18n="camera.codecLabel" for="video-codec">Codec vidéo :</label>
-        <select id="video-codec"></select>
-      </section>
       <section id="detection">
         <h2 data-i18n="camera.detect">Détection</h2>
         <p class="hint" data-i18n="camera.detectHint">Les seuils de bruit et de mouvement se règlent côté viewer.</p>

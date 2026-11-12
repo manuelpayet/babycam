@@ -1,15 +1,17 @@
 import { expect, test } from '@playwright/test';
-import { pairViaPaste, startCamera } from './pairing-helper';
+import { pairViaRoom, startCamera } from './pairing-helper';
 import { shot } from './helpers';
+import { killMockRelay, startMockRelay } from './mock-relay';
 
-test('appairage QR complet caméra ↔ viewer : le flux A/V arrive', async ({ browser }) => {
+test('appairage par code de salon (relais) caméra ↔ viewer : le flux A/V arrive', async ({ browser }) => {
+  const relay = await startMockRelay();
   const camCtx = await browser.newContext();
   const viewCtx = await browser.newContext();
   const cam = await camCtx.newPage();
   const view = await viewCtx.newPage();
 
-  await startCamera(cam);
-  await pairViaPaste(cam, view);
+  await startCamera(cam, relay.url);
+  await pairViaRoom(cam, view, relay.url);
 
   await expect(cam.locator('#viewers li')).toHaveCount(1);
   await expect(cam.locator('#viewers li')).toContainText('Viewer');
@@ -26,16 +28,18 @@ test('appairage QR complet caméra ↔ viewer : le flux A/V arrive', async ({ br
 
   await camCtx.close();
   await viewCtx.close();
+  await killMockRelay(relay);
 });
 
 test('la caméra voit le statut de connexion du peer', async ({ browser }) => {
+  const relay = await startMockRelay();
   const camCtx = await browser.newContext();
   const viewCtx = await browser.newContext();
   const cam = await camCtx.newPage();
   const view = await viewCtx.newPage();
 
-  await startCamera(cam);
-  await pairViaPaste(cam, view);
+  await startCamera(cam, relay.url);
+  await pairViaRoom(cam, view, relay.url);
 
   await cam.waitForFunction(
     () => {
@@ -49,4 +53,5 @@ test('la caméra voit le statut de connexion du peer', async ({ browser }) => {
 
   await camCtx.close();
   await viewCtx.close();
+  await killMockRelay(relay);
 });

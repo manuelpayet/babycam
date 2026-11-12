@@ -1,8 +1,8 @@
 import type { Page } from '@playwright/test';
-import { debugParams } from './helpers';
+import { relayParams } from './helpers';
 
-export async function startCamera(cam: Page): Promise<void> {
-  await cam.goto('camera.html' + debugParams());
+export async function startCamera(cam: Page, relayUrl: string): Promise<void> {
+  await cam.goto('camera.html' + relayParams(relayUrl));
   await cam.click('#start-btn');
   await cam.waitForFunction(() => {
     const video = document.querySelector<HTMLVideoElement>('#preview');
@@ -10,28 +10,17 @@ export async function startCamera(cam: Page): Promise<void> {
   });
 }
 
-export async function pairViaPaste(cam: Page, view: Page): Promise<void> {
-  const previousOffer = await cam.locator('#offer-payload').inputValue().catch(() => '');
+// Ouvre la page d'appairage #/pair et crée le salon : retourne le code de salon.
+export async function createRoom(cam: Page): Promise<string> {
   await cam.click('#pair-btn');
-  await cam.waitForFunction(
-    (prev) => {
-      const el = document.querySelector<HTMLTextAreaElement>('#offer-payload');
-      return !!el && el.value.startsWith('BCAM1:') && el.value !== prev;
-    },
-    previousOffer,
-    { timeout: 30_000 },
-  );
-  const offer = await cam.locator('#offer-payload').inputValue();
+  await cam.waitForSelector('#room-code:not([hidden])');
+  return (await cam.locator('#room-code').textContent())!.trim();
+}
 
-  await view.goto('viewer.html' + debugParams());
-  await view.fill('#offer-input', offer);
-  await view.click('#apply-offer-btn');
-  await view.waitForSelector('#qr-box-answer:not([hidden])');
-  const answer = await view.locator('#answer-payload').inputValue();
-
-  await cam.fill('#answer-payload', answer);
-  await cam.click('#apply-answer-btn');
-
+export async function joinRoomAndConnect(view: Page, relayUrl: string, room: string): Promise<void> {
+  await view.goto('viewer.html' + relayParams(relayUrl));
+  await view.fill('#room-input', room);
+  await view.click('#join-room-btn');
   await view.waitForFunction(
     () => {
       const video = document.querySelector<HTMLVideoElement>('#remote');
@@ -40,4 +29,9 @@ export async function pairViaPaste(cam: Page, view: Page): Promise<void> {
     null,
     { timeout: 30_000 },
   );
+}
+
+export async function pairViaRoom(cam: Page, view: Page, relayUrl: string): Promise<void> {
+  const room = await createRoom(cam);
+  await joinRoomAndConnect(view, relayUrl, room);
 }

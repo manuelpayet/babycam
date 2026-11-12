@@ -9,7 +9,7 @@ async function startCameraWithRelay(cam: import('@playwright/test').Page, relayP
     const video = document.querySelector<HTMLVideoElement>('#preview');
     return !!video && !!video.srcObject && video.readyState >= 2;
   });
-  await cam.click('#create-room-btn');
+  await cam.click('#pair-btn');
   await expect(cam.locator('#room-code')).not.toBeHidden();
   return (await cam.locator('#room-code').textContent())!.trim();
 }

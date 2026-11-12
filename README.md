@@ -1,6 +1,6 @@
 # Babycam
 
-Babycam PWA 100 % statique : une page **caméra** (téléphone près du lit) envoie son flux vidéo/audio en **WebRTC pair-à-pair** à une page **viewer** (téléphone du parent), appairées par **QR code** (v2 : découverte par relais + code de salon). Voir [docs/plan.md](docs/plan.md) pour le plan détaillé. Captures E2E : [docs/screenshots/](docs/screenshots/).
+Babycam PWA 100 % statique : une page **caméra** (téléphone près du lit) envoie son flux vidéo/audio en **WebRTC pair-à-pair** à une page **viewer** (téléphone du parent), appairées par **code de salon** via le relais (le QR affiché ne contient que ce code). Voir [docs/plan.md](docs/plan.md) pour le plan détaillé. Captures E2E : [docs/screenshots/](docs/screenshots/).
 
 ## URL
 
@@ -34,7 +34,7 @@ npx wrangler tail     # logs en temps réel
 
 Le salon vit dans un Durable Object : son état est stocké dans les attachments des WebSockets (`serializeAttachment`), donc il survit à l'éviction de l'objet par Cloudflare.
 
-L'URL déployée est renseignée dans `src/shared/relay.ts` (`DEFAULT_RELAY_URL` = `wss://babycam-relay.veille-cron.workers.dev`). Tant qu'un relais est configuré, le bouton « Appairer » de la caméra affiche un **petit QR de salon** (`BCAM1/R/CODE`) et le SDP passe par le relais. `?relay=<wss://…>` remplace le relais dans l'URL, `?relay=0` le désactive (mode QR SDP en local, utilisé par les tests E2E).
+L'URL déployée est renseignée dans `src/shared/relay.ts` (`DEFAULT_RELAY_URL` = `wss://babycam-relay.veille-cron.workers.dev`). Le bouton « Appairer » de la caméra (page dédiée `#/pair`) crée un salon et affiche un **petit QR de salon** (`BCAM1/R/CODE`) : le SDP passe par le relais, jamais par le QR. `?relay=<wss://…>` remplace le relais dans l'URL (les tests E2E utilisent un relais mock local).
 
 ## Méthodologie
 

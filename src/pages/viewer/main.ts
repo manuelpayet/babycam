@@ -1,10 +1,9 @@
 import '../../shared/style.css';
 import { applyTranslations, initLangSelect, t } from '../../shared/i18n';
-import { createChunkCollector, decodeMessage, decodeRoom, encodeMessage, toQrChunks, type SignalMessage } from '../../shared/signaling';
+import { decodeRoom, type SignalMessage } from '../../shared/signaling';
 import { QrScanner } from '../../shared/scanner';
-import { QrCarousel, qs, setBuildBadge } from '../../shared/ui';
+import { qs, setBuildBadge, Wizard, goView, initHashViews } from '../../shared/ui';
 import { registerPwa } from '../../shared/pwa';
-import { mungeSdpAggressive, videoMimeFromSdp } from '../../shared/sdp';
 import { iceServersFromLocation, ViewerPeer, type DataMessage } from '../../shared/webrtc';
 import { thresholdToDbfs } from '../../shared/detection/noise';
 import { playAlertSound, pushAlertHistory, showAlertBanner, vibrate } from '../../shared/alerts';
@@ -16,6 +15,7 @@ const langSelect = document.querySelector<HTMLSelectElement>('#lang-select');
 if (langSelect) initLangSelect(langSelect);
 registerPwa();
 setBuildBadge();
+initHashViews(true);
 
 const status = qs<HTMLParagraphElement>('#status');
 const remote = qs<HTMLVideoElement>('#remote');
@@ -23,12 +23,6 @@ const unmuteBtn = qs<HTMLButtonElement>('#unmute-btn');
 const fullscreenBtn = qs<HTMLButtonElement>('#fullscreen-btn');
 const scanBtn = qs<HTMLButtonElement>('#scan-offer-btn');
 const qrReader = qs<HTMLDivElement>('#qr-reader');
-const offerInput = qs<HTMLTextAreaElement>('#offer-input');
-const applyOfferBtn = qs<HTMLButtonElement>('#apply-offer-btn');
-const qrBoxAnswer = qs<HTMLDivElement>('#qr-box-answer');
-const qrCanvasAnswer = qs<HTMLCanvasElement>('#qr-canvas-answer');
-const qrPosAnswer = qs<HTMLSpanElement>('#qr-pos-answer');
-const answerPayload = qs<HTMLTextAreaElement>('#answer-payload');
 const viewerName = qs<HTMLInputElement>('#viewer-name');
 const alertBanner = qs<HTMLDivElement>('#alert-banner');
 const alertHistory = qs<HTMLUListElement>('#alert-history');
@@ -71,12 +65,16 @@ function updateNoiseMeter(dbfs: number): void {
   noiseDbfs.textContent = `${Math.round(dbfs)} dBFS`;
 }
 
+// Wizard d'appairage (100 % relais) : étapes 0=code de salon, 1=connexion.
+const pairWizard = new Wizard(qs<HTMLElement>('#pairing'));
+const waitingText = qs<HTMLParagraphElement>('#wiz-waiting-text');
+pairWizard.show(0);
+
 function setStatus(text: string): void {
   status.textContent = text;
 }
 
 let peer: ViewerPeer | null = null;
-let answerCarousel: QrCarousel | null = null;
 const dataLog: DataMessage[] = [];
 let relay: RelayClient | null = null;
 let lastCameraFrom: string | null = null;
@@ -96,9 +94,7 @@ const diagPeers = qs<HTMLUListElement>('#diag-peers');
 const diagLog = qs<HTMLUListElement>('#diag-log');
 
 function renderDiag(): void {
-  diagRelay.textContent = relayParam
-    ? `relais ${relayParam} — ws=${relay ? relay.wsState : 3}${relay ? ` — id=${relay.id || '…'}` : ''} — cameras=${relay?.cameras.length ?? 0}`
-    : 'relais : désactivé (mode QR local)';
+  diagRelay.textContent = `relais ${relayParam ?? 'non configuré'} — ws=${relay ? relay.wsState : 3}${relay ? ` — id=${relay.id || '…'}` : ''} — cameras=${relay?.cameras.length ?? 0}`;
   diagPeers.innerHTML = '';
   const pc = peer?.pc;
   if (pc) {
@@ -109,8 +105,8 @@ function renderDiag(): void {
 }
 setInterval(renderDiag, 1000);
 
-function makePeer(iceServers: RTCIceServer[], trickle = false): ViewerPeer {
-  const p = new ViewerPeer(iceServers, viewerName.value.trim() || 'Viewer', trickle);
+function makePeer(iceServers: RTCIceServer[]): ViewerPeer {
+  const p = new ViewerPeer(iceServers, viewerName.value.trim() || 'Viewer');
   p.onCandidate = (cand) => {
     if (relay && lastCameraFrom) relay.candidate(lastCameraFrom, cand);
   };
@@ -134,8 +130,13 @@ function makePeer(iceServers: RTCIceServer[], trickle = false): ViewerPeer {
   p.onState = (state) => {
     if (state === 'connected') {
       clearTimeout(reconnectTimer);
+      waitingText.textContent = t('viewer.status.connected');
+      pairWizard.show(pairWizard.count);
+      goView('main');
       setStatus(t('viewer.status.connected'));
     } else if (state === 'disconnected' || state === 'failed') {
+      waitingText.textContent = t('viewer.status.reconnecting');
+      pairWizard.show(1);
       setStatus(t('viewer.status.reconnecting'));
       requestReconnect();
     } else if (state === 'closed') {
@@ -145,68 +146,20 @@ function makePeer(iceServers: RTCIceServer[], trickle = false): ViewerPeer {
   return p;
 }
 
-let collector = createChunkCollector();
-
-async function applyOfferText(raw: string): Promise<void> {
-  const text = raw.trim();
-  const room = decodeRoom(text);
-  if (room) {
-    roomInput.value = room;
-    await joinRoom();
-    return;
-  }
-  offerInput.value = text;
-  await applyOffer();
-}
-
+// Le seul payload QR scanné est le code de salon (BCAM1/R/CODE) affiché par la caméra.
 const scanner = new QrScanner('qr-reader', (text) => {
   const room = decodeRoom(text);
-  if (room) {
-    void scanner.stop();
-    qrReader.hidden = true;
-    void applyOfferText(text);
-    return;
-  }
-  const full = collector.add(text) ?? (text.startsWith('BCAM1:') ? text : null);
-  if (!full) return;
+  if (!room) return;
   void scanner.stop();
   qrReader.hidden = true;
-  void applyOfferText(full);
+  roomInput.value = room;
+  void joinRoom();
 });
 
 scanBtn.addEventListener('click', () => {
-  collector = createChunkCollector();
   qrReader.hidden = false;
   scanner.start('environment').catch((err: unknown) => setStatus(String(err)));
 });
-
-async function applyOffer(): Promise<void> {
-  let msg: SignalMessage;
-  try {
-    msg = decodeMessage(offerInput.value);
-  } catch {
-    setStatus(t('viewer.badOffer'));
-    return;
-  }
-  setStatus(t('viewer.offerReceived'));
-  peer = makePeer([]);
-  addDiagLog(diagLog, 'offre reçue (QR), génération de la réponse…');
-  try {
-    const answer = await peer.acceptOffer(msg);
-    const slim = { ...answer, sdp: mungeSdpAggressive(answer.sdp ?? '', videoMimeFromSdp(msg.sdp ?? '')) };
-    const message = encodeMessage(slim);
-    answerPayload.value = message;
-    qrBoxAnswer.hidden = false;
-    answerCarousel?.stop();
-    answerCarousel = new QrCarousel(qrCanvasAnswer, qrPosAnswer, toQrChunks(message));
-    await answerCarousel.start();
-  } catch (err) {
-    setStatus(String(err));
-    addDiagLog(diagLog, `erreur offre: ${String(err)}`);
-  }
-}
-
-applyOfferBtn.addEventListener('click', () => void applyOfferText(offerInput.value));
 
 async function joinRoom(): Promise<void> {
   if (!relayParam) {
@@ -255,7 +208,7 @@ async function joinRoom(): Promise<void> {
         const answer = await peer.renegotiate(m);
         relay?.signal(from, answer);
       } else {
-        peer = makePeer(iceServersFromLocation(), true);
+        peer = makePeer(iceServersFromLocation());
         const answer = await peer.acceptOffer(m);
         relay?.signal(from, answer);
       }
@@ -271,6 +224,8 @@ async function joinRoom(): Promise<void> {
     addDiagLog(diagLog, `erreur join salon: ${String(err)}`);
     return;
   }
+  pairWizard.show(1);
+  waitingText.textContent = t('viewer.wiz.waiting');
   setStatus(t('viewer.status.joined'));
   addDiagLog(diagLog, `salon rejoint: ${room}`);
 }

@@ -1,8 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { decodeMessage } from '../src/shared/signaling';
 import { shot } from './helpers';
 import { killMockRelay, startMockRelay } from './mock-relay';
-import { pairViaPaste, startCamera } from './pairing-helper';
 
 test('I3.6 salon (relais) : trickle ICE, tous les codecs vidéo offerts, panneau diag avec IP des candidats', async ({ browser }) => {
   const relay = await startMockRelay();
@@ -55,9 +53,6 @@ test('I3.6 salon (relais) : trickle ICE, tous les codecs vidéo offerts, panneau
   const mVideo = remoteSdp.split('\r\n').find((l) => l.startsWith('m=video'))!;
   expect(mVideo.split(' ').slice(3).length).toBeGreaterThan(1);
 
-  await expect(cam.locator('#video-codec')).toBeHidden();
-  await expect(cam.locator('label[for="video-codec"]')).toBeHidden();
-
   await cam.locator('#diag').evaluate((d) => {
     (d as HTMLDetailsElement).open = true;
   });
@@ -75,32 +70,4 @@ test('I3.6 salon (relais) : trickle ICE, tous les codecs vidéo offerts, panneau
   await camCtx.close();
   await viewCtx.close();
   await killMockRelay(relay);
-});
-
-test('I3.6 QR local (relay=0) : 1 seul codec vidéo dans l offre + diag indique relais désactivé', async ({ browser }) => {
-  const camCtx = await browser.newContext();
-  const viewCtx = await browser.newContext();
-  const cam = await camCtx.newPage();
-  const view = await viewCtx.newPage();
-  await startCamera(cam);
-  await pairViaPaste(cam, view);
-  await expect(cam.locator('#viewers li')).toHaveCount(1);
-
-  const payload = await cam.locator('#offer-payload').inputValue();
-  const msg = decodeMessage(payload);
-  const mVideo = msg.sdp!.split('\r\n').find((l) => l.startsWith('m=video'))!;
-  expect(mVideo.split(' ').slice(3)).toHaveLength(1);
-
-  await expect(cam.locator('#video-codec')).toBeVisible();
-
-  await expect(cam.locator('#diag-relay')).toContainText(/désactivé|disabled/i);
-  await cam.locator('#diag').evaluate((d) => {
-    (d as HTMLDetailsElement).open = true;
-  });
-  await expect(cam.locator('#diag-peers li')).toContainText(/connected/);
-  await expect(cam.locator('#diag-peers li')).toContainText(/:\d+ \(host\)/);
-  await shot(cam, 'I3.6-camera-diag-qr');
-
-  await camCtx.close();
-  await viewCtx.close();
 });

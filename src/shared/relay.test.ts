@@ -38,12 +38,7 @@ describe('relayUrlFromLocation', () => {
     expect(relayUrlFromLocation()).toBe('wss://127.0.0.1:8787');
   });
 
-  it('?relay=0 désactive le relais (tests E2E hors ligne)', () => {
-    vi.stubGlobal('location', { search: '?relay=0' });
-    expect(relayUrlFromLocation()).toBeNull();
-  });
-
-  it('sans paramètre, retombe sur DEFAULT_RELAY_URL', () => {
+  it('sans paramètre, retombe sur DEFAULT_RELAY_URL (le relais est obligatoire)', () => {
     vi.stubGlobal('location', { search: '' });
     expect(relayUrlFromLocation()).toBe(DEFAULT_RELAY_URL);
   });

@@ -1,15 +1,17 @@
 import { test } from '@playwright/test';
-import { pairViaPaste, startCamera } from './pairing-helper';
+import { pairViaRoom, startCamera } from './pairing-helper';
 import { shot } from './helpers';
+import { killMockRelay, startMockRelay } from './mock-relay';
 
 test('détection de bruit : seuil à 0 + micro factice → alerte "noise" reçue par le viewer', async ({ browser }) => {
+  const relay = await startMockRelay();
   const camCtx = await browser.newContext();
   const viewCtx = await browser.newContext();
   const cam = await camCtx.newPage();
   const view = await viewCtx.newPage();
 
-  await startCamera(cam);
-  await pairViaPaste(cam, view);
+  await startCamera(cam, relay.url);
+  await pairViaRoom(cam, view, relay.url);
 
   await view.waitForFunction(
     () => {
@@ -52,4 +54,5 @@ test('détection de bruit : seuil à 0 + micro factice → alerte "noise" reçue
 
   await camCtx.close();
   await viewCtx.close();
+  await killMockRelay(relay);
 });

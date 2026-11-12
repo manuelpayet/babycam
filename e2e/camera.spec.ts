@@ -43,16 +43,3 @@ test('page caméra : démarrage avec médias factices, pistes audio+vidéo', asy
   });
   expect(stopped).toBe(true);
 });
-
-test('liste déroulante codec vidéo : peuplée, défaut = premier codec, choix persisté', async ({ page }) => {
-  await page.goto('camera.html' + debugParams());
-  const options = await page.locator('#video-codec option').allTextContents();
-  expect(options.length).toBeGreaterThan(0);
-  expect(options.every((o) => o.startsWith('video/'))).toBe(true);
-  await expect(page.locator('#video-codec')).toHaveValue(options[0]);
-  if (options.length > 1) {
-    await page.selectOption('#video-codec', options[1]);
-    await page.reload();
-    await expect(page.locator('#video-codec')).toHaveValue(options[1]);
-  }
-});

@@ -138,7 +138,7 @@ input[type='range'] {
 
 #qr-canvas,
 #qr-canvas-answer {
-  width: min(340px, 94vw);
+  width: min(340px, 100%);
   height: auto;
   image-rendering: pixelated;
   background: #fff;
@@ -212,4 +212,62 @@ input[type='range'] {
   color: #1e1b4b;
   font-weight: 700;
   text-align: center;
+}
+
+.wizard-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.wizard-steps li {
+  flex: 1;
+  min-width: 0;
+  padding: 0.3rem 0.2rem;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  background: var(--bg-soft);
+  font-size: 0.72rem;
+  text-align: center;
+  opacity: 0.55;
+}
+
+.wizard-steps li.active {
+  border-color: var(--accent);
+  font-weight: 600;
+  opacity: 1;
+}
+
+.wizard-steps li.done {
+  opacity: 0.9;
+}
+
+.wizard-steps li.done::before {
+  content: '✓ ';
+}
+
+.wizard-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--bg-soft);
+  border-radius: 0.75rem;
+}
+
+.wizard-pane[hidden] {
+  display: none;
+}
+
+/* Page d'appairage dédiée (vue plein écran #/pair) : seules ces sections restent visibles. */
+body.view-pair .page > *:not(.topbar):not(#status):not(#pairing):not(.controls) {
+  display: none;
+}
+
+/* Page caméra : la section appairage n'apparaît que sur la page dédiée #/pair. */
+body.view-main.page-camera #pairing {
+  display: none;
 }

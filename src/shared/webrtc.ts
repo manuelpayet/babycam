@@ -1,34 +1,9 @@
 import type { SignalMessage } from './signaling';
-import { filterSdpByVideoCodec, mungeSdpAggressive } from './sdp';
 
 export function iceServersFromLocation(): RTCIceServer[] {
   const params = new URLSearchParams(location.search);
   if (params.get('stun') === '0') return [];
   return [{ urls: 'stun:stun.l.google.com:19302' }];
-}
-
-export function waitIceComplete(pc: RTCPeerConnection, timeoutMs = 8000): Promise<void> {
-  return new Promise((resolve) => {
-    if (pc.iceGatheringState === 'complete') {
-      resolve();
-      return;
-    }
-    const timer = setTimeout(() => {
-      cleanup();
-      resolve();
-    }, timeoutMs);
-    const onChange = () => {
-      if (pc.iceGatheringState === 'complete') {
-        cleanup();
-        resolve();
-      }
-    };
-    function cleanup(): void {
-      clearTimeout(timer);
-      pc.removeEventListener('icegatheringstatechange', onChange);
-    }
-    pc.addEventListener('icegatheringstatechange', onChange);
-  });
 }
 
 export type AlertKind = 'noise' | 'motion';
@@ -75,18 +50,11 @@ interface PeerEntry {
   pendingCandidates: RTCIceCandidateInit[];
 }
 
+// Appairage 100 % relais : ICE trickle (les candidats partent via onCandidate),
+// le SDP n'est jamais allégé ni transporté par QR.
 export interface PeerManagerOptions {
-  trickle?: boolean;
   onCandidate?: (peerId: string, candidate: RTCIceCandidateInit) => void;
   onRenegotiate?: (peerId: string, msg: SignalMessage) => void;
-  getVideoCodec?: () => string | undefined;
-  aggressiveMunge?: boolean;
-}
-
-function mungeSdp(sdp: string, opts: PeerManagerOptions): string {
-  const codec = opts.getVideoCodec?.();
-  if (opts.aggressiveMunge) return mungeSdpAggressive(sdp, codec);
-  return codec ? filterSdpByVideoCodec(sdp, codec) : sdp;
 }
 
 export class CameraPeers {
@@ -147,9 +115,7 @@ export class CameraPeers {
     };
     for (const track of this.stream.getTracks()) pc.addTrack(track, this.stream);
     await pc.setLocalDescription(await pc.createOffer());
-    if (!this.opts.trickle) await waitIceComplete(pc);
-    const sdp = mungeSdp(pc.localDescription!.sdp, this.opts);
-    return { id, msg: { v: 1, t: 'offer', sdp } };
+    return { id, msg: { v: 1, t: 'offer', sdp: pc.localDescription!.sdp } };
   }
 
   private async renegotiate(id: string): Promise<void> {
@@ -160,9 +126,7 @@ export class CameraPeers {
     this.lastRegen.set(id, now);
     entry.pc.restartIce();
     await entry.pc.setLocalDescription(await entry.pc.createOffer());
-    if (!this.opts.trickle) await waitIceComplete(entry.pc);
-    const sdp = mungeSdp(entry.pc.localDescription!.sdp, this.opts);
-    this.opts.onRenegotiate(id, { v: 1, t: 'offer', sdp });
+    this.opts.onRenegotiate(id, { v: 1, t: 'offer', sdp: entry.pc.localDescription!.sdp });
   }
 
   async acceptAnswer(id: string, msg: SignalMessage): Promise<void> {
@@ -222,7 +186,6 @@ export class ViewerPeer {
   constructor(
     private iceServers: RTCIceServer[],
     private name: string,
-    private trickle = false,
   ) {}
 
   async acceptOffer(msg: SignalMessage): Promise<SignalMessage> {
@@ -257,7 +220,6 @@ export class ViewerPeer {
     await this.pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
     await this.pc.setLocalDescription(await this.pc.createAnswer());
     for (const c of this.pendingCandidates.splice(0)) this.addCandidate(c);
-    if (!this.trickle) await waitIceComplete(this.pc);
     return { v: 1, t: 'answer', sdp: this.pc.localDescription!.sdp };
   }
 
@@ -266,7 +228,6 @@ export class ViewerPeer {
     await this.pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
     await this.pc.setLocalDescription(await this.pc.createAnswer());
     for (const c of this.pendingCandidates.splice(0)) this.addCandidate(c);
-    if (!this.trickle) await waitIceComplete(this.pc);
     return { v: 1, t: 'answer', sdp: this.pc.localDescription!.sdp };
   }
 

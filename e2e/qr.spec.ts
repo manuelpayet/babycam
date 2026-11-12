@@ -1,6 +1,5 @@
 import { expect, test } from '@playwright/test';
 import jsQR from 'jsqr';
-import { decodeMessage, toQrChunks } from '../src/shared/signaling';
 import { debugParams, shot } from './helpers';
 import { killMockRelay, startMockRelay } from './mock-relay';
 
@@ -15,42 +14,6 @@ async function decodeCanvas(page: import('@playwright/test').Page, selector: str
   return result?.data ?? null;
 }
 
-test('QR d offre : UN seul QR en mode LAN (sans STUN), décodable et identique au payload', async ({ page }) => {
-  await page.goto('camera.html' + debugParams());
-  await page.click('#start-btn');
-  await page.waitForFunction(() => {
-    const video = document.querySelector<HTMLVideoElement>('#preview');
-    return !!video && !!video.srcObject && video.readyState >= 2;
-  });
-
-  await page.click('#pair-btn');
-  await expect(page.locator('#qr-box')).toBeVisible();
-  await expect(page.locator('#answer-box')).toBeVisible();
-
-  const payload = await page.locator('#offer-payload').inputValue();
-  expect(payload.startsWith('BCAM1:')).toBe(true);
-
-  const chunks = toQrChunks(payload);
-  expect(chunks.length).toBe(1);
-  expect(chunks[0]).toMatch(/^BCAM1\/1\/1\//);
-
-  const qrText = await decodeCanvas(page, '#qr-canvas');
-  expect(qrText).toBe(chunks[0]);
-
-  const codec = await page.locator('#video-codec').inputValue();
-  const msg = decodeMessage(payload);
-  const lines = msg.sdp!.split('\r\n');
-  const mVideo = lines.find((l) => l.startsWith('m=video'))!;
-  expect(mVideo.split(' ').slice(3)).toHaveLength(1);
-  expect(msg.sdp).toContain(codec.split('/')[1]);
-  const mAudio = lines.find((l) => l.startsWith('m=audio'))!;
-  expect(mAudio.split(' ').slice(3)).toHaveLength(1);
-  expect(msg.sdp).toContain('opus');
-  expect(msg.sdp).not.toContain('a=extmap:');
-
-  await shot(page, 'I3.2-camera-qr-single');
-});
-
 test('appairage refusé si la caméra est arrêtée', async ({ page }) => {
   await page.goto('camera.html' + debugParams());
   await page.click('#pair-btn');
@@ -58,7 +21,7 @@ test('appairage refusé si la caméra est arrêtée', async ({ page }) => {
   await expect(page.locator('#status')).toContainText(/Démarre|Start/i);
 });
 
-test('QR de salon (relais configuré) : minuscule, décodable, appairage complet via relais', async ({ browser }) => {
+test('QR d’appairage = code de salon (relais) : minuscule, décodable, identique au code affiché, appairage complet via relais', async ({ browser }) => {
   const relay = await startMockRelay();
   const relayParam = encodeURIComponent(relay.url);
   const camCtx = await browser.newContext();
@@ -77,11 +40,14 @@ test('QR de salon (relais configuré) : minuscule, décodable, appairage complet
 
   const qrText = await decodeCanvas(cam, '#qr-canvas');
   expect(qrText).toMatch(/^BCAM1\/R\/[A-Z2-9]{6}$/);
+  const room = qrText!.slice('BCAM1/R/'.length);
+  await expect(cam.locator('#room-code')).toHaveText(room);
+  await expect(cam.locator('#room-payload')).toHaveValue(qrText!);
   await shot(cam, 'I3.3-camera-room-qr');
 
   await view.goto(`viewer.html?stun=0&debug=1&relay=${relayParam}`);
-  await view.fill('#offer-input', qrText!);
-  await view.click('#apply-offer-btn');
+  await view.fill('#room-input', room);
+  await view.click('#join-room-btn');
   await view.waitForFunction(
     () => {
       const video = document.querySelector<HTMLVideoElement>('#remote');
