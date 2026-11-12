@@ -185,6 +185,24 @@ input[type='range'] {
   }
 }
 
+.meter {
+  height: 0.6rem;
+  background: var(--bg-soft);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.meter-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+
+.meter-fill.hot {
+  background: var(--danger);
+}
+
 #alert-banner {
   position: sticky;
   top: 0;

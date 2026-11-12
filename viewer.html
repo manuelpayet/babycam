@@ -25,6 +25,16 @@
         <button id="unmute-btn" class="btn" data-i18n="viewer.unmute">Activer le son</button>
         <button id="fullscreen-btn" class="btn" data-i18n="viewer.fullscreen">Plein écran</button>
       </div>
+      <section id="detection">
+        <h2 data-i18n="viewer.detect">Détection</h2>
+        <label class="hint" data-i18n="viewer.noiseThreshold" for="noise-threshold">Seuil de bruit</label>
+        <input id="noise-threshold" type="range" min="0" max="100" value="70" />
+        <label class="hint" data-i18n="viewer.motionSens" for="motion-sens">Sensibilité mouvement</label>
+        <input id="motion-sens" type="range" min="1" max="100" value="50" />
+        <p class="hint" data-i18n="viewer.noiseLevel">Niveau sonore</p>
+        <div class="meter"><div id="noise-meter" class="meter-fill"></div></div>
+        <span id="noise-dbfs" class="hint"></span>
+      </section>
       <section id="pairing">
         <h2 data-i18n="viewer.pairing">Appairage</h2>
         <label class="hint" data-i18n="viewer.nameLabel">Votre nom :</label>
