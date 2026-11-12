@@ -9,6 +9,7 @@ import { iceServersFromLocation, ViewerPeer, type DataMessage } from '../../shar
 import { playAlertSound, pushAlertHistory, showAlertBanner, vibrate } from '../../shared/alerts';
 import { RelayClient, relayUrlFromLocation } from '../../shared/relay';
 import { addDiagLog, candidateAddress } from '../../shared/diag';
+import { updateVolMeter } from '../../shared/volmeter';
 
 applyTranslations();
 const langSelect = document.querySelector<HTMLSelectElement>('#lang-select');
@@ -30,6 +31,8 @@ const qrPosAnswer = qs<HTMLSpanElement>('#qr-pos-answer');
 const answerPayload = qs<HTMLTextAreaElement>('#answer-payload');
 const viewerName = qs<HTMLInputElement>('#viewer-name');
 const alertBanner = qs<HTMLDivElement>('#alert-banner');
+const volFill = qs<HTMLElement>('#vol-fill');
+const volDbfs = qs<HTMLSpanElement>('#vol-dbfs');
 const alertHistory = qs<HTMLUListElement>('#alert-history');
 const roomInput = qs<HTMLInputElement>('#room-input');
 const joinRoomBtn = qs<HTMLButtonElement>('#join-room-btn');
@@ -85,6 +88,9 @@ function makePeer(iceServers: RTCIceServer[], trickle = false): ViewerPeer {
   };
   p.onData = (m) => {
     dataLog.push(m);
+    if (m.type === 'level') {
+      updateVolMeter(volFill, typeof m.dbfs === 'number' ? m.dbfs : -100, volDbfs);
+    }
     if (m.type === 'alert') {
       showAlertBanner(alertBanner, m.kind);
       playAlertSound();

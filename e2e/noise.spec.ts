@@ -1,6 +1,11 @@
-import { test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { pairViaPaste, startCamera } from './pairing-helper';
 import { shot } from './helpers';
+
+async function meterWidth(page: import('@playwright/test').Page): Promise<number> {
+  const w = await page.locator('#vol-fill').evaluate((el) => (el as HTMLElement).style.width);
+  return Number.parseFloat(w);
+}
 
 test('détection de bruit : seuil à 0 + micro factice → alerte "noise" reçue par le viewer', async ({ browser }) => {
   const camCtx = await browser.newContext();
@@ -29,6 +34,12 @@ test('détection de bruit : seuil à 0 + micro factice → alerte "noise" reçue
   );
 
   await shot(cam, 'I2.1-camera-noise-detect');
+
+  await expect.poll(() => meterWidth(cam), { timeout: 10_000 }).toBeGreaterThan(0);
+  await expect.poll(() => meterWidth(view), { timeout: 10_000 }).toBeGreaterThan(0);
+  await expect(view.locator('#vol-dbfs')).toContainText(/dB/);
+  await shot(cam, 'I3.8-camera-volmeter');
+  await shot(view, 'I3.8-viewer-volmeter');
 
   await camCtx.close();
   await viewCtx.close();
