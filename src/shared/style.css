@@ -138,7 +138,7 @@ input[type='range'] {
 
 #qr-canvas,
 #qr-canvas-answer {
-  width: min(340px, 94vw);
+  width: min(340px, 100%);
   height: auto;
   image-rendering: pixelated;
   background: #fff;
