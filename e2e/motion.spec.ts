@@ -1,15 +1,17 @@
 import { test } from '@playwright/test';
-import { pairViaPaste, startCamera } from './pairing-helper';
+import { pairViaRoom, startCamera } from './pairing-helper';
 import { shot } from './helpers';
+import { killMockRelay, startMockRelay } from './mock-relay';
 
 test('détection de mouvement : sensibilité max + vidéo factice animée → alerte "motion"', async ({ browser }) => {
+  const relay = await startMockRelay();
   const camCtx = await browser.newContext();
   const viewCtx = await browser.newContext();
   const cam = await camCtx.newPage();
   const view = await viewCtx.newPage();
 
-  await startCamera(cam);
-  await pairViaPaste(cam, view);
+  await startCamera(cam, relay.url);
+  await pairViaRoom(cam, view, relay.url);
 
   await view.evaluate(() => {
     const el = document.querySelector<HTMLInputElement>('#motion-sens')!;
@@ -43,4 +45,5 @@ test('détection de mouvement : sensibilité max + vidéo factice animée → al
 
   await camCtx.close();
   await viewCtx.close();
+  await killMockRelay(relay);
 });

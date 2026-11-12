@@ -1,15 +1,17 @@
 import { expect, test } from '@playwright/test';
-import { pairViaPaste, startCamera } from './pairing-helper';
+import { pairViaRoom, startCamera } from './pairing-helper';
 import { shot } from './helpers';
+import { killMockRelay, startMockRelay } from './mock-relay';
 
 test('alerte bruit de bout en bout : bannière + historique côté viewer', async ({ browser }) => {
+  const relay = await startMockRelay();
   const camCtx = await browser.newContext();
   const viewCtx = await browser.newContext();
   const cam = await camCtx.newPage();
   const view = await viewCtx.newPage();
 
-  await startCamera(cam);
-  await pairViaPaste(cam, view);
+  await startCamera(cam, relay.url);
+  await pairViaRoom(cam, view, relay.url);
 
   await cam.evaluate(() => {
     const bc = (window as unknown as { __babycam?: { sendToAll?: (m: unknown) => void } }).__babycam;
@@ -32,4 +34,5 @@ test('alerte bruit de bout en bout : bannière + historique côté viewer', asyn
 
   await camCtx.close();
   await viewCtx.close();
+  await killMockRelay(relay);
 });

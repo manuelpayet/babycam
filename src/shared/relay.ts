@@ -19,9 +19,10 @@ export function backoffDelayMs(attempt: number): number {
 // URL du relais par défaut (worker Cloudflare `babycam-relay`, déployé via `wrangler deploy` dans relay/).
 export const DEFAULT_RELAY_URL: string = 'wss://babycam-relay.veille-cron.workers.dev';
 
+// Le relais est obligatoire (plus de mode hors-ligne) : ?relay=<url> ne fait que
+// remplacer l'URL (tests E2E avec relais mock), le défaut est le worker déployé.
 export function relayUrlFromLocation(): string | null {
   const param = new URLSearchParams(location.search).get('relay');
-  if (param === '0') return null;
   if (param) return param;
   return DEFAULT_RELAY_URL !== '' ? DEFAULT_RELAY_URL : null;
 }

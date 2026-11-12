@@ -263,7 +263,7 @@ input[type='range'] {
 }
 
 /* Page d'appairage dédiée (vue plein écran #/pair) : seules ces sections restent visibles. */
-body.view-pair .page > *:not(.topbar):not(#status):not(#pairing):not(#discovery):not(.controls) {
+body.view-pair .page > *:not(.topbar):not(#status):not(#pairing):not(.controls) {
   display: none;
 }
 

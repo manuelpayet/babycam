@@ -1,10 +1,9 @@
 import '../../shared/style.css';
 import { applyTranslations, initLangSelect, t } from '../../shared/i18n';
 import { WakeLockManager } from '../../shared/wakelock';
-import { createChunkCollector, decodeMessage, encodeMessage, encodeRoom, toQrChunks } from '../../shared/signaling';
+import { encodeRoom } from '../../shared/signaling';
 import { QrCarousel, qs, setBuildBadge, Wizard, goView, initHashViews } from '../../shared/ui';
 import { registerPwa } from '../../shared/pwa';
-import { QrScanner } from '../../shared/scanner';
 import { CameraPeers, iceServersFromLocation, type AlertKind, type SettingsMessage } from '../../shared/webrtc';
 import { NoiseDetector } from '../../shared/detection/noise';
 import { MotionDetector } from '../../shared/detection/motion';
@@ -138,60 +137,17 @@ function onAlert(kind: AlertKind, level: number): void {
   void wakeLock.onVisible();
 }
 
-const codecSel = qs<HTMLSelectElement>('#video-codec');
-const CODEC_KEY = 'babycam.videoCodec';
-function availableVideoCodecs(): string[] {
-  const caps = RTCRtpSender.getCapabilities('video');
-  const seen = new Set<string>();
-  for (const c of caps?.codecs ?? []) {
-    if (c.mimeType.startsWith('video/')) seen.add(c.mimeType);
-  }
-  return [...seen];
-}
-let currentVideoCodec: string | undefined;
-{
-  const available = availableVideoCodecs();
-  const saved = localStorage.getItem(CODEC_KEY);
-  currentVideoCodec = saved && available.includes(saved) ? saved : available[0];
-  for (const c of available) {
-    const opt = document.createElement('option');
-    opt.value = c;
-    opt.textContent = c;
-    codecSel.append(opt);
-  }
-  codecSel.value = currentVideoCodec ?? '';
-  codecSel.addEventListener('change', () => {
-    currentVideoCodec = codecSel.value || undefined;
-    localStorage.setItem(CODEC_KEY, codecSel.value);
-  });
-}
-
-// Le choix du codec ne sert qu'à alléger le QR en mode local (?relay=0) :
-// masqué dès qu'un relais est configuré (mode salon par défaut, payload illimité).
-{
-  const codecLabel = qs<HTMLLabelElement>('label[for="video-codec"]');
-  const hide = relayUrlFromLocation() !== null;
-  codecSel.hidden = hide;
-  codecLabel.hidden = hide;
-}
-
 const pairBtn = qs<HTMLButtonElement>('#pair-btn');
 const qrCanvas = qs<HTMLCanvasElement>('#qr-canvas');
 const qrPos = qs<HTMLSpanElement>('#qr-pos');
-const offerPayload = qs<HTMLTextAreaElement>('#offer-payload');
-const answerPayload = qs<HTMLTextAreaElement>('#answer-payload');
-const applyAnswerBtn = qs<HTMLButtonElement>('#apply-answer-btn');
+const roomPayload = qs<HTMLTextAreaElement>('#room-payload');
 const viewersList = qs<HTMLUListElement>('#viewers');
 
 let peers: CameraPeers | null = null;
-let peersMode: 'qr' | 'relay' | null = null;
-let pendingPeerId: string | null = null;
 let carousel: QrCarousel | null = null;
 
-// Wizard d'appairage : étapes 0=démarrer, 1=QR à montrer, 2=réponse du viewer, 3=connecté.
-// En mode relais, l'étape 2 (réponse) passe par le relais : elle est sautée.
+// Wizard d'appairage (100 % relais) : étapes 0=démarrer, 1=code de salon (QR), 2=connecté.
 const pairWizard = new Wizard(qs<HTMLElement>('#pairing'));
-if (relayUrlFromLocation()) pairWizard.skip(2);
 pairWizard.show(0);
 
 const diagRelay = qs<HTMLParagraphElement>('#diag-relay');
@@ -199,9 +155,7 @@ const diagPeers = qs<HTMLUListElement>('#diag-peers');
 const diagLog = qs<HTMLUListElement>('#diag-log');
 
 function renderDiag(): void {
-  diagRelay.textContent = relay
-    ? `relais ${relayUrlFromLocation()} — ws=${relay.wsState} — id=${relay.id || '…'}`
-    : 'relais : désactivé (mode QR local)';
+  diagRelay.textContent = `relais ${relayUrlFromLocation() ?? 'non configuré'} — ws=${relay ? relay.wsState : 3}${relay ? ` — id=${relay.id || '…'}` : ''}`;
   diagPeers.innerHTML = '';
   for (const p of peers?.list ?? []) {
     const li = document.createElement('li');
@@ -226,34 +180,16 @@ function renderViewers(): void {
   }
 }
 
-function ensurePeers(iceServers: RTCIceServer[], mode: 'qr' | 'relay'): CameraPeers {
-  if (peers && peersMode !== mode) {
-    for (const p of peers.list) peers.revoke(p.id);
-    peers = null;
-  }
-  peersMode = mode;
+function ensurePeers(iceServers: RTCIceServer[]): CameraPeers {
   if (!peers) {
     peers = new CameraPeers(stream!, iceServers, {
-      getVideoCodec: mode === 'qr' ? () => currentVideoCodec : undefined,
-      aggressiveMunge: mode === 'qr',
-      trickle: mode === 'relay',
       onCandidate: (id, cand) => {
         const from = relayFromByPeer.get(id);
         if (relay && from) relay.candidate(from, cand);
       },
       onRenegotiate: (id, msg) => {
         const from = relayFromByPeer.get(id);
-        if (relay && from) {
-          relay.signal(from, msg);
-        } else {
-          const message = encodeMessage(msg);
-          offerPayload.value = message;
-          pairWizard.show(2);
-          carousel?.stop();
-          carousel = new QrCarousel(qrCanvas, qrPos, toQrChunks(message));
-          void carousel.start();
-          setStatusKey('camera.pair.reconnect');
-        }
+        if (relay && from) relay.signal(from, msg);
       },
     });
     peers.onPeerChange = () => renderViewers();
@@ -264,40 +200,32 @@ function ensurePeers(iceServers: RTCIceServer[], mode: 'qr' | 'relay'): CameraPe
   return peers;
 }
 
+// Appairage 100 % relais : on crée un salon et le QR ne contient que son code.
 async function startPairing(): Promise<void> {
   if (!stream) {
     setStatusKey('camera.needStream');
     return;
   }
   const relayUrl = relayUrlFromLocation();
-  if (relayUrl) {
-    try {
-      const room = await startRelayRoom(relayUrl);
-      const message = encodeRoom(room);
-      offerPayload.value = message;
-      pairWizard.show(1);
-      roomCodeEl.textContent = room;
-      roomCodeEl.hidden = false;
-      carousel?.stop();
-      carousel = new QrCarousel(qrCanvas, qrPos, [message]);
-      await carousel.start();
-      setStatusKey('camera.pair.waiting');
-    } catch (err) {
-      setStatus(String(err));
-      addDiagLog(diagLog, `erreur appairage relais: ${String(err)}`);
-    }
+  if (!relayUrl) {
+    setStatusKey('camera.relayNeeded');
     return;
   }
-  const { id, msg } = await ensurePeers([], 'qr').createOffer();
-  addDiagLog(diagLog, 'offre QR créée');
-  pendingPeerId = id;
-  const message = encodeMessage(msg);
-  offerPayload.value = message;
-  pairWizard.show(2);
-  carousel?.stop();
-  carousel = new QrCarousel(qrCanvas, qrPos, toQrChunks(message));
-  await carousel.start();
-  setStatusKey('camera.pair.waiting');
+  try {
+    const room = await startRelayRoom(relayUrl);
+    const message = encodeRoom(room);
+    roomPayload.value = message;
+    pairWizard.show(1);
+    roomCodeEl.textContent = room;
+    roomCodeEl.hidden = false;
+    carousel?.stop();
+    carousel = new QrCarousel(qrCanvas, qrPos, [message]);
+    await carousel.start();
+    setStatusKey('camera.pair.waiting');
+  } catch (err) {
+    setStatus(String(err));
+    addDiagLog(diagLog, `erreur appairage relais: ${String(err)}`);
+  }
 }
 
 pairBtn.addEventListener('click', () => {
@@ -306,50 +234,13 @@ pairBtn.addEventListener('click', () => {
 });
 qs<HTMLButtonElement>('#pair-start-btn').addEventListener('click', () => void startPairing());
 
-const scanAnswerBtn = qs<HTMLButtonElement>('#scan-answer-btn');
-const qrReaderAnswer = qs<HTMLDivElement>('#qr-reader-answer');
-
-async function applyAnswer(): Promise<void> {
-  if (!peers || !pendingPeerId) return;
-  try {
-    const msg = decodeMessage(answerPayload.value);
-    await peers.acceptAnswer(pendingPeerId, msg);
-    carousel?.stop();
-    pairWizard.show(pairWizard.count);
-    goView('main');
-    setStatusKey('camera.pair.connected');
-  } catch (err) {
-    setStatus(String(err));
-    addDiagLog(diagLog, `erreur réponse: ${String(err)}`);
-  }
-}
-
-applyAnswerBtn.addEventListener('click', () => void applyAnswer());
-
-let answerCollector = createChunkCollector();
-const answerScanner = new QrScanner('qr-reader-answer', (text) => {
-  const full = answerCollector.add(text) ?? (text.startsWith('BCAM1:') ? text : null);
-  if (!full) return;
-  void answerScanner.stop();
-  qrReaderAnswer.hidden = true;
-  answerPayload.value = full;
-  void applyAnswer();
-});
-
-scanAnswerBtn.addEventListener('click', () => {
-  answerCollector = createChunkCollector();
-  qrReaderAnswer.hidden = false;
-  answerScanner.start('user').catch((err: unknown) => setStatus(String(err)));
-});
-
-const createRoomBtn = qs<HTMLButtonElement>('#create-room-btn');
 const roomCodeEl = qs<HTMLParagraphElement>('#room-code');
 const relayStatus = qs<HTMLParagraphElement>('#relay-status');
 let relay: RelayClient | null = null;
 const relayFromByPeer = new Map<string, string>();
 
 async function startRelayRoom(relayUrl: string): Promise<string> {
-  ensurePeers(iceServersFromLocation(), 'relay');
+  ensurePeers(iceServersFromLocation());
   relay = new RelayClient(relayUrl);
   const room = newRoomCode();
   const pendingFrom = new Set<string>();
@@ -367,7 +258,7 @@ async function startRelayRoom(relayUrl: string): Promise<string> {
     pendingFrom.add(from);
     addDiagLog(diagLog, `requête reçue de ${from.slice(0, 8)}…`);
     try {
-      const { id, msg } = await ensurePeers(iceServersFromLocation(), 'relay').createOffer();
+      const { id, msg } = await ensurePeers(iceServersFromLocation()).createOffer();
       relayFromByPeer.set(id, from);
       relay!.signal(from, msg);
       const buffered = peers?.list.find((p) => p.id === id)?.localCandidates ?? [];
@@ -400,26 +291,6 @@ async function startRelayRoom(relayUrl: string): Promise<string> {
   addDiagLog(diagLog, `salon créé: ${room}`);
   return room;
 }
-
-createRoomBtn.addEventListener('click', async () => {
-  if (!stream) {
-    setStatusKey('camera.needStream');
-    return;
-  }
-  const relayUrl = relayUrlFromLocation();
-  if (!relayUrl) {
-    setStatusKey('camera.relayNeeded');
-    return;
-  }
-  try {
-    const room = await startRelayRoom(relayUrl);
-    roomCodeEl.textContent = room;
-    roomCodeEl.hidden = false;
-  } catch (err) {
-    setStatus(String(err));
-    addDiagLog(diagLog, `erreur salon: ${String(err)}`);
-  }
-});
 
 if (new URLSearchParams(location.search).get('debug') === '1') {
   (window as unknown as Record<string, unknown>).__babycam = {

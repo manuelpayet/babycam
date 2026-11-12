@@ -39,35 +39,23 @@
       <section id="pairing">
         <h2 data-i18n="viewer.pairing">Appairage</h2>
         <ol class="wizard-steps">
-          <li data-i18n="viewer.wiz.step1">Recevoir l’offre</li>
-          <li data-i18n="viewer.wiz.step2">Montrer la réponse</li>
-          <li data-i18n="viewer.wiz.step3">Connexion</li>
+          <li data-i18n="viewer.wiz.step1">Code de salon</li>
+          <li data-i18n="viewer.wiz.step2">Connexion</li>
         </ol>
-        <div class="wizard-pane" id="wiz-offer">
+        <div class="wizard-pane" id="wiz-room">
           <label class="hint" data-i18n="viewer.nameLabel">Votre nom :</label>
           <input id="viewer-name" type="text" value="Viewer" />
-          <p class="hint" data-i18n="viewer.wiz.scanHint">Scannez le QR affiché par la caméra, ou collez l’offre / le code de salon ci-dessous.</p>
+          <p class="hint" data-i18n="viewer.wiz.scanHint">Scannez le QR affiché par la caméra, ou entrez le code de salon ci-dessous.</p>
           <button id="scan-offer-btn" class="btn" data-i18n="viewer.scan">Scanner le QR de la caméra</button>
           <div id="qr-reader" hidden></div>
-          <label class="hint" data-i18n="viewer.pasteOffer">Ou coller l’offre :</label>
-          <textarea id="offer-input"></textarea>
-          <button id="apply-offer-btn" class="btn" data-i18n="viewer.applyOffer">Générer la réponse</button>
-        </div>
-        <div class="wizard-pane" id="qr-box-answer" hidden>
-          <canvas id="qr-canvas-answer" width="280" height="280"></canvas>
-          <span id="qr-pos-answer" class="hint"></span>
-          <label class="hint" data-i18n="viewer.answerLabel">Réponse à montrer à la caméra (QR ou copier) :</label>
-          <textarea id="answer-payload" readonly></textarea>
+          <label class="hint" data-i18n="viewer.roomLabel" for="room-input">Code de salon :</label>
+          <input id="room-input" type="text" maxlength="6" placeholder="CODE" />
+          <button id="join-room-btn" class="btn btn-primary" data-i18n="viewer.joinRoom">Rejoindre le salon</button>
+          <ul id="camera-list"></ul>
         </div>
         <div class="wizard-pane" id="wiz-waiting" hidden>
           <p class="status" id="wiz-waiting-text"></p>
         </div>
-      </section>
-      <section id="discovery">
-        <h2 data-i18n="viewer.discovery">Découverte (salon)</h2>
-        <input id="room-input" type="text" maxlength="6" placeholder="CODE" />
-        <button id="join-room-btn" class="btn" data-i18n="viewer.joinRoom">Rejoindre le salon</button>
-        <ul id="camera-list"></ul>
       </section>
       <section id="alerts">
         <h2 data-i18n="viewer.alerts">Alertes</h2>
