@@ -24,6 +24,11 @@ const startBtn = qs<HTMLButtonElement>('#start-btn');
 const stopBtn = qs<HTMLButtonElement>('#stop-btn');
 const switchBtn = qs<HTMLButtonElement>('#switch-cam');
 const torchBtn = qs<HTMLButtonElement>('#torch-btn');
+const talkAudio = qs<HTMLAudioElement>('#talk-audio');
+const talkIndicator = qs<HTMLParagraphElement>('#talk-indicator');
+const talkSoundBtn = qs<HTMLButtonElement>('#talk-sound-btn');
+const speakerBox = qs<HTMLDivElement>('#speaker-box');
+const speakerSelect = qs<HTMLSelectElement>('#speaker-select');
 
 let stream: MediaStream | null = null;
 let facing: 'environment' | 'user' = 'environment';
@@ -180,6 +185,69 @@ function renderViewers(): void {
   }
 }
 
+// Talkie-walkie : on mixe les pistes audio reçues des viewers dans un seul
+// MediaStream joué par <audio id="talk-audio"> (diffusion sur le haut-parleur).
+const talkMix = new MediaStream();
+const talkTracksByPeer = new Map<string, MediaStreamTrack[]>();
+
+function attachTalkTrack(peerId: string, track: MediaStreamTrack): void {
+  if (track.kind !== 'audio') return;
+  const arr = talkTracksByPeer.get(peerId) ?? [];
+  if (!arr.includes(track)) arr.push(track);
+  talkTracksByPeer.set(peerId, arr);
+  if (!talkMix.getTracks().includes(track)) talkMix.addTrack(track);
+  talkAudio.srcObject = talkMix;
+  talkAudio.muted = false;
+  void talkAudio.play().catch(() => undefined);
+}
+
+// Autoplay iOS : la lecture unmuted exige un geste utilisateur → bouton dédié
+// qui appelle play() dans le handler de clic (ensuite, les play() ultérieurs
+// — ex. à l'arrivée d'une nouvelle piste — sont autorisés sur cet élément).
+talkSoundBtn.addEventListener('click', () => {
+  talkAudio.muted = false;
+  void talkAudio.play().then(
+    () => {
+      talkSoundBtn.disabled = true;
+    },
+    () => undefined,
+  );
+});
+
+function detachTalkTrack(peerId: string, track: MediaStreamTrack): void {
+  const arr = talkTracksByPeer.get(peerId) ?? [];
+  talkTracksByPeer.set(peerId, arr.filter((t) => t !== track));
+  talkMix.removeTrack(track);
+  if (talkMix.getTracks().length === 0) talkAudio.srcObject = null;
+}
+
+// Sortie audio (haut-parleur) : best effort, setSinkId absent ou 1 seul device → on cache.
+async function refreshSpeakers(): Promise<void> {
+  try {
+    if (typeof talkAudio.setSinkId !== 'function') {
+      speakerBox.hidden = true;
+      return;
+    }
+    const outputs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audiooutput');
+    speakerSelect.innerHTML = '';
+    for (const d of outputs) {
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `${t('camera.speaker')} ${speakerSelect.length + 1}`;
+      speakerSelect.append(opt);
+    }
+    speakerBox.hidden = outputs.length <= 1;
+  } catch {
+    speakerBox.hidden = true;
+  }
+}
+
+speakerSelect.addEventListener('change', () => {
+  void talkAudio.setSinkId(speakerSelect.value).catch(() => undefined);
+});
+navigator.mediaDevices?.addEventListener?.('devicechange', () => void refreshSpeakers());
+void refreshSpeakers();
+
 function ensurePeers(iceServers: RTCIceServer[]): CameraPeers {
   if (!peers) {
     peers = new CameraPeers(stream!, iceServers, {
@@ -193,8 +261,11 @@ function ensurePeers(iceServers: RTCIceServer[]): CameraPeers {
       },
     });
     peers.onPeerChange = () => renderViewers();
+    peers.onRemoteTrack = (id, track) => attachTalkTrack(id, track);
+    peers.onRemoteTrackEnd = (id, track) => detachTalkTrack(id, track);
     peers.onData = (_id, m) => {
       if (m.type === 'settings') applySettings(m);
+      else if (m.type === 'talk') talkIndicator.hidden = !m.active;
     };
   }
   return peers;
@@ -279,6 +350,17 @@ async function startRelayRoom(relayUrl: string): Promise<string> {
       if (peerId && m.candidate) peers?.addCandidate(peerId, m.candidate);
       return;
     }
+    if (peerId && m.t === 'offer' && typeof m.sdp === 'string') {
+      // Renégotiation initiée par le viewer (ex. ajout de son micro, talkie-walkie).
+      try {
+        const answer = await peers!.acceptOffer(peerId, m);
+        relay!.signal(from, answer);
+        addDiagLog(diagLog, `offre de renégociation reçue de ${from.slice(0, 8)}… — réponse envoyée`);
+      } catch (err) {
+        addDiagLog(diagLog, `erreur renégociation viewer: ${String(err)}`);
+      }
+      return;
+    }
     if (peerId && m.t === 'answer' && typeof m.sdp === 'string') {
       await peers!.acceptAnswer(peerId, m);
       pairWizard.show(pairWizard.count);
@@ -301,5 +383,9 @@ if (new URLSearchParams(location.search).get('debug') === '1') {
     getRoomCode: () => roomCodeEl.textContent ?? '',
     getNoiseThresholdDbfs: () => noiseDet?.thresholdDbfs ?? null,
     getMotionRatioThreshold: () => motionDet?.ratioThreshold ?? null,
+    getTalkTracks: () => talkMix.getTracks().map((tr) => ({ kind: tr.kind, readyState: tr.readyState, enabled: tr.enabled })),
+    getTalkAudioStream: () => talkAudio.srcObject instanceof MediaStream && talkAudio.srcObject.getAudioTracks().length > 0,
+    getTalkAudioPaused: () => talkAudio.paused,
+    isTalkIndicatorVisible: () => !talkIndicator.hidden,
   };
 }

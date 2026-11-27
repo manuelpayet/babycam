@@ -21,6 +21,7 @@ const status = qs<HTMLParagraphElement>('#status');
 const remote = qs<HTMLVideoElement>('#remote');
 const unmuteBtn = qs<HTMLButtonElement>('#unmute-btn');
 const fullscreenBtn = qs<HTMLButtonElement>('#fullscreen-btn');
+const talkBtn = qs<HTMLButtonElement>('#talk-btn');
 const scanBtn = qs<HTMLButtonElement>('#scan-offer-btn');
 const qrReader = qs<HTMLDivElement>('#qr-reader');
 const viewerName = qs<HTMLInputElement>('#viewer-name');
@@ -81,6 +82,79 @@ let lastCameraFrom: string | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 const relayParam = relayUrlFromLocation();
 
+// Talkie-walkie : micro du viewer, muet par défaut. Bouton muet/unmute :
+// le track est ajouté une seule fois au PC (addTransceiver sendonly → renégociation),
+// puis seul `enabled` est basculé à chaque bascule du bouton.
+let micStream: MediaStream | null = null;
+let micTrack: MediaStreamTrack | null = null;
+let talking = false;
+let starting = false;
+
+async function ensureMic(): Promise<MediaStreamTrack | null> {
+  if (micTrack) return micTrack;
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+  } catch {
+    return null;
+  }
+  micTrack = micStream.getAudioTracks()[0] ?? null;
+  if (micTrack) micTrack.enabled = false;
+  return micTrack;
+}
+
+function syncTalkBtn(): void {
+  talkBtn.classList.toggle('talking', talking);
+  const key = talking ? 'viewer.muteMic' : 'viewer.talk';
+  talkBtn.dataset.i18n = key;
+  talkBtn.textContent = t(key);
+}
+
+function stopTalk(): void {
+  if (!talking) return;
+  talking = false;
+  if (micTrack) micTrack.enabled = false;
+  syncTalkBtn();
+  peer?.send({ type: 'talk', active: false });
+}
+
+async function startTalk(): Promise<void> {
+  if (talking || starting) return;
+  if (!peer?.pc || peer.pc.connectionState === 'closed') {
+    setStatus(t('viewer.notConnected'));
+    return;
+  }
+  starting = true;
+  try {
+    const track = await ensureMic();
+    if (!track) {
+      setStatus(t('viewer.micDenied'));
+      return;
+    }
+    if (!peer.hasTalkTrack) peer.addTalkTrack(track);
+    talking = true;
+    track.enabled = true;
+    syncTalkBtn();
+    peer.send({ type: 'talk', active: true });
+  } finally {
+    starting = false;
+  }
+}
+
+function releaseMic(): void {
+  stopTalk();
+  micStream?.getTracks().forEach((track) => track.stop());
+  micStream = null;
+  micTrack = null;
+}
+
+// Bouton muet/unmute : un clic active le micro (unmute), un second le coupe (mute).
+talkBtn.addEventListener('click', () => {
+  if (talking) stopTalk();
+  else void startTalk();
+});
+
 function requestReconnect(): void {
   if (!relay || !lastCameraFrom) return;
   clearTimeout(reconnectTimer);
@@ -109,6 +183,9 @@ function makePeer(iceServers: RTCIceServer[]): ViewerPeer {
   const p = new ViewerPeer(iceServers, viewerName.value.trim() || 'Viewer');
   p.onCandidate = (cand) => {
     if (relay && lastCameraFrom) relay.candidate(lastCameraFrom, cand);
+  };
+  p.onRenegotiate = (msg) => {
+    if (relay && lastCameraFrom) relay.signal(lastCameraFrom, msg);
   };
   p.onTrack = (s) => {
     remote.srcObject = s;
@@ -141,6 +218,7 @@ function makePeer(iceServers: RTCIceServer[]): ViewerPeer {
       requestReconnect();
     } else if (state === 'closed') {
       setStatus(t('viewer.status.lost'));
+      releaseMic();
     }
   };
   return p;
@@ -200,6 +278,17 @@ async function joinRoom(): Promise<void> {
       if (m.candidate) peer?.addCandidate(m.candidate);
       return;
     }
+    if (m.t === 'answer' && typeof m.sdp === 'string') {
+      // Réponse à notre offre de renégotiation (ajout du micro, talkie-walkie).
+      try {
+        await peer?.acceptAnswer(m);
+        addDiagLog(diagLog, `réponse de renégociation appliquée pour ${from.slice(0, 8)}…`);
+      } catch (err) {
+        setStatus(String(err));
+        addDiagLog(diagLog, `erreur réponse renégociation: ${String(err)}`);
+      }
+      return;
+    }
     if (m.t !== 'offer') return;
     lastCameraFrom = from;
     addDiagLog(diagLog, `offre reçue de ${from.slice(0, 8)}… (salon)`);
@@ -249,5 +338,11 @@ if (new URLSearchParams(location.search).get('debug') === '1') {
     getDataLog: () => dataLog,
     getRemoteSdp: () => peer?.pc?.remoteDescription?.sdp ?? null,
     getLastLevel: () => lastDbfs,
+    getMicState: () => ({
+      hasMic: !!micTrack,
+      enabled: micTrack?.enabled ?? null,
+      talkTrackAdded: peer?.hasTalkTrack ?? false,
+      talking,
+    }),
   };
 }

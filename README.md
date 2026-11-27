@@ -1,6 +1,6 @@
 # Babycam
 
-Babycam PWA 100 % statique : une page **caméra** (téléphone près du lit) envoie son flux vidéo/audio en **WebRTC pair-à-pair** à une page **viewer** (téléphone du parent), appairées par **code de salon** via le relais (le QR affiché ne contient que ce code). Voir [docs/plan.md](docs/plan.md) pour le plan détaillé. Captures E2E : [docs/screenshots/](docs/screenshots/).
+Babycam PWA 100 % statique : une page **caméra** (téléphone près du lit) envoie son flux vidéo/audio en **WebRTC pair-à-pair** à une page **viewer** (téléphone du parent), appairées par **code de salon** via le relais (le QR affiché ne contient que ce code). Le viewer peut aussi parler à la caméra (talkie-walkie, bouton muet/unmute) : la caméra diffuse sa voix sur son haut-parleur. Voir [docs/plan.md](docs/plan.md) pour le plan détaillé. Captures E2E : [docs/screenshots/](docs/screenshots/).
 
 ## URL
 

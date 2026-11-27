@@ -32,6 +32,17 @@
         <h2 data-i18n="camera.viewers">Viewers connectés</h2>
         <ul id="viewers"></ul>
       </section>
+      <section id="talk">
+        <h2 data-i18n="camera.talk">Talkie-walkie</h2>
+        <p id="talk-indicator" class="status" hidden data-i18n="camera.talking">Un viewer parle…</p>
+        <button id="talk-sound-btn" class="btn" data-i18n="camera.talkSound">Activer le son du talk</button>
+        <p class="hint" data-i18n="camera.talkSoundHint">iOS exige un appui utilisateur pour diffuser la voix du viewer sur le haut-parleur.</p>
+        <div id="speaker-box" hidden>
+          <label class="hint" for="speaker-select" data-i18n="camera.speaker">Haut-parleur :</label>
+          <select id="speaker-select"></select>
+        </div>
+        <audio id="talk-audio" autoplay></audio>
+      </section>
       <section id="pairing">
         <h2 data-i18n="camera.pairing">Appairage</h2>
         <ol class="wizard-steps">

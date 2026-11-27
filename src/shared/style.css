@@ -106,6 +106,23 @@ video {
   gap: 0.5rem;
 }
 
+.controls .hint {
+  flex-basis: 100%;
+}
+
+#talk-btn {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#talk-btn.talking {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #1e1b4b;
+  font-weight: 700;
+}
+
 .lang {
   display: flex;
   align-items: center;

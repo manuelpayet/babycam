@@ -26,7 +26,11 @@ export interface SettingsMessage {
   noiseThreshold: number;
   motionSens: number;
 }
-export type DataMessage = AlertMessage | HelloMessage | LevelMessage | SettingsMessage;
+export interface TalkMessage {
+  type: 'talk';
+  active: boolean;
+}
+export type DataMessage = AlertMessage | HelloMessage | LevelMessage | SettingsMessage | TalkMessage;
 
 export const CHANNEL_LABEL = 'babycam';
 
@@ -48,6 +52,7 @@ interface PeerEntry {
   localCandidates: string[];
   remoteCandidates: string[];
   pendingCandidates: RTCIceCandidateInit[];
+  remoteStream: MediaStream;
 }
 
 // Appairage 100 % relais : ICE trickle (les candidats partent via onCandidate),
@@ -62,6 +67,9 @@ export class CameraPeers {
   private lastRegen = new Map<string, number>();
   onPeerChange?: () => void;
   onData?: (peerId: string, m: DataMessage) => void;
+  // Talkie-walkie : pistes reçues des viewers (second flux audio viewer→caméra).
+  onRemoteTrack?: (peerId: string, track: MediaStreamTrack, stream: MediaStream) => void;
+  onRemoteTrackEnd?: (peerId: string, track: MediaStreamTrack) => void;
 
   constructor(
     private stream: MediaStream,
@@ -85,7 +93,7 @@ export class CameraPeers {
   async createOffer(): Promise<{ id: string; msg: SignalMessage }> {
     const id = crypto.randomUUID();
     const pc = new RTCPeerConnection({ iceServers: this.iceServers });
-    const entry: PeerEntry = { pc, dc: null as unknown as RTCDataChannel, name: '…', localCandidates: [], remoteCandidates: [], pendingCandidates: [] };
+    const entry: PeerEntry = { pc, dc: null as unknown as RTCDataChannel, name: '…', localCandidates: [], remoteCandidates: [], pendingCandidates: [], remoteStream: new MediaStream() };
     pc.onicecandidate = (e) => {
       if (e.candidate) {
         const c = e.candidate.toJSON().candidate ?? '';
@@ -113,6 +121,11 @@ export class CameraPeers {
       this.onPeerChange?.();
       if (pc.connectionState === 'failed') void this.renegotiate(id).catch(() => undefined);
     };
+    pc.ontrack = (ev) => {
+      if (!entry.remoteStream.getTracks().includes(ev.track)) entry.remoteStream.addTrack(ev.track);
+      ev.track.onended = () => this.onRemoteTrackEnd?.(id, ev.track);
+      this.onRemoteTrack?.(id, ev.track, entry.remoteStream);
+    };
     for (const track of this.stream.getTracks()) pc.addTrack(track, this.stream);
     await pc.setLocalDescription(await pc.createOffer());
     return { id, msg: { v: 1, t: 'offer', sdp: pc.localDescription!.sdp } };
@@ -134,6 +147,18 @@ export class CameraPeers {
     if (!peer) throw new Error('unknown peer');
     await peer.pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp });
     for (const c of peer.pendingCandidates.splice(0)) this.addCandidate(id, c);
+  }
+
+  // Renégotiation initiée par le viewer (ex. ajout de son micro pour le talkie-walkie) :
+  // on applique son offre et on renvoie une réponse.
+  async acceptOffer(id: string, msg: SignalMessage): Promise<SignalMessage> {
+    const peer = this.peers.get(id);
+    if (!peer) throw new Error('unknown peer');
+    if (peer.pc.signalingState !== 'stable') throw new Error(`signaling non stable: ${peer.pc.signalingState}`);
+    await peer.pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
+    await peer.pc.setLocalDescription(await peer.pc.createAnswer());
+    for (const c of peer.pendingCandidates.splice(0)) this.addCandidate(id, c);
+    return { v: 1, t: 'answer', sdp: peer.pc.localDescription!.sdp };
   }
 
   addCandidate(id: string, candidate: RTCIceCandidateInit): void {
@@ -159,6 +184,7 @@ export class CameraPeers {
   revoke(id: string): void {
     const p = this.peers.get(id);
     if (!p) return;
+    for (const track of p.remoteStream.getTracks()) this.onRemoteTrackEnd?.(id, track);
     p.dc.close();
     p.pc.close();
     this.peers.delete(id);
@@ -173,14 +199,30 @@ export class ViewerPeer {
   readonly localCandidates: string[] = [];
   readonly remoteCandidates: string[] = [];
   private pendingCandidates: RTCIceCandidateInit[] = [];
+  private talkTrack: MediaStreamTrack | null = null;
   onTrack?: (stream: MediaStream) => void;
   onData?: (m: DataMessage) => void;
   onState?: (state: string) => void;
   onCandidate?: (candidate: RTCIceCandidateInit) => void;
   onOpen?: () => void;
+  // Talkie-walkie : le viewer initie une renégocation quand il ajoute son micro.
+  onRenegotiate?: (msg: SignalMessage) => void;
+
+  get hasTalkTrack(): boolean {
+    return this.talkTrack !== null;
+  }
 
   send(m: DataMessage): void {
     if (this.dc?.readyState === 'open') this.dc.send(JSON.stringify(m));
+  }
+
+  // Ajoute le micro du viewer comme second flux audio (sendonly) viewer→caméra :
+  // addTransceiver déclenche onnegotiationneeded → offre envoyée via onRenegotiate.
+  addTalkTrack(track: MediaStreamTrack): void {
+    if (!this.pc) throw new Error('no peer connection');
+    if (this.talkTrack) return;
+    this.talkTrack = track;
+    this.pc.addTransceiver(track, { direction: 'sendonly' });
   }
 
   constructor(
@@ -217,6 +259,14 @@ export class ViewerPeer {
       };
     };
     this.pc.onconnectionstatechange = () => this.onState?.(this.pc?.connectionState ?? 'new');
+    this.pc.onnegotiationneeded = () => {
+      if (this.pc?.signalingState !== 'stable') return;
+      const pc = this.pc;
+      void (async () => {
+        await pc.setLocalDescription(await pc.createOffer());
+        this.onRenegotiate?.({ v: 1, t: 'offer', sdp: pc.localDescription!.sdp });
+      })().catch(() => undefined);
+    };
     await this.pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
     await this.pc.setLocalDescription(await this.pc.createAnswer());
     for (const c of this.pendingCandidates.splice(0)) this.addCandidate(c);
@@ -229,6 +279,13 @@ export class ViewerPeer {
     await this.pc.setLocalDescription(await this.pc.createAnswer());
     for (const c of this.pendingCandidates.splice(0)) this.addCandidate(c);
     return { v: 1, t: 'answer', sdp: this.pc.localDescription!.sdp };
+  }
+
+  // Réponse à notre propre offre de renégotiation (ajout du micro), envoyée par la caméra.
+  async acceptAnswer(msg: SignalMessage): Promise<void> {
+    if (!this.pc) throw new Error('no peer connection');
+    await this.pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp });
+    for (const c of this.pendingCandidates.splice(0)) this.addCandidate(c);
   }
 
   addCandidate(candidate: RTCIceCandidateInit): void {
