@@ -25,6 +25,20 @@ export function iceServersFromLocation(): RTCIceServer[] {
   return servers;
 }
 
+export function hasTurnServer(iceServers: RTCIceServer[]): boolean {
+  return iceServers.some((s) => (Array.isArray(s.urls) ? s.urls : [s.urls]).some((u) => /^turns?:/i.test(u)));
+}
+
+export function isRelayCandidate(candidate: string): boolean {
+  return /\styp\srelay(\s|$)/.test(candidate);
+}
+
+// Gathering ICE terminé sans aucun candidat relay alors qu'un serveur TURN est configuré :
+// le relais TURN est injoignable (réseau bloqué, mauvais identifiants, serveur down).
+export function turnFailedAfterGathering(iceServers: RTCIceServer[], gatheredRelay: boolean): boolean {
+  return !gatheredRelay && hasTurnServer(iceServers);
+}
+
 export type AlertKind = 'noise' | 'motion';
 export interface AlertMessage {
   type: 'alert';
@@ -58,6 +72,7 @@ export interface PeerInfo {
   signalingState: string;
   localCandidates: string[];
   remoteCandidates: string[];
+  relay: boolean;
 }
 
 interface PeerEntry {
@@ -67,6 +82,8 @@ interface PeerEntry {
   localCandidates: string[];
   remoteCandidates: string[];
   pendingCandidates: RTCIceCandidateInit[];
+  relay: boolean;
+  turnReported: boolean;
 }
 
 // Appairage 100 % relais : ICE trickle (les candidats partent via onCandidate),
@@ -74,6 +91,7 @@ interface PeerEntry {
 export interface PeerManagerOptions {
   onCandidate?: (peerId: string, candidate: RTCIceCandidateInit) => void;
   onRenegotiate?: (peerId: string, msg: SignalMessage) => void;
+  onTurnFailed?: (peerId: string) => void;
 }
 
 export class CameraPeers {
@@ -98,19 +116,30 @@ export class CameraPeers {
       signalingState: p.pc.signalingState,
       localCandidates: p.localCandidates,
       remoteCandidates: p.remoteCandidates,
+      relay: p.relay,
     }));
+  }
+
+  private reportTurnFailure(id: string, entry: PeerEntry): void {
+    if (entry.turnReported || !turnFailedAfterGathering(this.iceServers, entry.relay)) return;
+    entry.turnReported = true;
+    this.opts.onTurnFailed?.(id);
   }
 
   async createOffer(): Promise<{ id: string; msg: SignalMessage }> {
     const id = crypto.randomUUID();
     const pc = new RTCPeerConnection({ iceServers: this.iceServers });
-    const entry: PeerEntry = { pc, dc: null as unknown as RTCDataChannel, name: '…', localCandidates: [], remoteCandidates: [], pendingCandidates: [] };
+    const entry: PeerEntry = { pc, dc: null as unknown as RTCDataChannel, name: '…', localCandidates: [], remoteCandidates: [], pendingCandidates: [], relay: false, turnReported: false };
     pc.onicecandidate = (e) => {
       if (e.candidate) {
         const c = e.candidate.toJSON().candidate ?? '';
         if (c && !entry.localCandidates.includes(c)) entry.localCandidates.push(c);
+        if (c && isRelayCandidate(c)) entry.relay = true;
         this.opts.onCandidate?.(id, e.candidate.toJSON());
       }
+    };
+    pc.onicegatheringstatechange = () => {
+      if (pc.iceGatheringState === 'complete') this.reportTurnFailure(id, entry);
     };
     const dc = pc.createDataChannel(CHANNEL_LABEL);
     entry.dc = dc;
@@ -191,12 +220,15 @@ export class ViewerPeer {
   readonly remoteStream = new MediaStream();
   readonly localCandidates: string[] = [];
   readonly remoteCandidates: string[] = [];
+  relay = false;
   private pendingCandidates: RTCIceCandidateInit[] = [];
+  private turnReported = false;
   onTrack?: (stream: MediaStream) => void;
   onData?: (m: DataMessage) => void;
   onState?: (state: string) => void;
   onCandidate?: (candidate: RTCIceCandidateInit) => void;
   onOpen?: () => void;
+  onTurnFailed?: () => void;
 
   send(m: DataMessage): void {
     if (this.dc?.readyState === 'open') this.dc.send(JSON.stringify(m));
@@ -213,7 +245,14 @@ export class ViewerPeer {
       if (e.candidate) {
         const c = e.candidate.toJSON().candidate ?? '';
         if (c && !this.localCandidates.includes(c)) this.localCandidates.push(c);
+        if (c && isRelayCandidate(c)) this.relay = true;
         this.onCandidate?.(e.candidate.toJSON());
+      }
+    };
+    this.pc.onicegatheringstatechange = () => {
+      if (this.pc?.iceGatheringState === 'complete' && !this.turnReported && turnFailedAfterGathering(this.iceServers, this.relay)) {
+        this.turnReported = true;
+        this.onTurnFailed?.();
       }
     };
     this.pc.ontrack = (ev) => {

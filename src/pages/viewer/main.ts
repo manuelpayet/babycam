@@ -127,6 +127,10 @@ function makePeer(iceServers: RTCIceServer[]): ViewerPeer {
     }
   };
   p.onOpen = () => sendSettings();
+  p.onTurnFailed = () => {
+    setStatus(t('viewer.turnFailed'));
+    addDiagLog(diagLog, 'TURN injoignable : aucun candidat relais après gathering (NAT symétrique non secouru, voir ?turn=)');
+  };
   p.onState = (state) => {
     if (state === 'connected') {
       clearTimeout(reconnectTimer);

@@ -191,6 +191,10 @@ function ensurePeers(iceServers: RTCIceServer[]): CameraPeers {
         const from = relayFromByPeer.get(id);
         if (relay && from) relay.signal(from, msg);
       },
+      onTurnFailed: (id) => {
+        setStatusKey('camera.turnFailed');
+        addDiagLog(diagLog, `TURN injoignable pour ${id.slice(0, 8)}… : aucun candidat relais après gathering (voir ?turn=)`);
+      },
     });
     peers.onPeerChange = () => renderViewers();
     peers.onData = (_id, m) => {

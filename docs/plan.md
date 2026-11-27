@@ -47,7 +47,7 @@ Page d'accueil (`/`) : choix « Je surveille » (caméra) ou « Je regarde » (v
 - **Base path** : `/babycam/` (site projet GitHub Pages, pas site utilisateur) → `base: '/babycam/'` dans `vite.config.ts`.
 - **PWA** : `manifest.webmanifest` + service worker générés via `vite-plugin-pwa` (precache de l'app shell, `registerType: 'autoUpdate'`). L'app shell doit se charger offline ; le flux live, évidemment, non.
 - **i18n** : dictionnaires `fr` / `en`, détection `navigator.language`, sélecteur manuel, persistance `localStorage`.
-- **Communication média** : WebRTC (`RTCPeerConnection`, tracks vidéo + audio). STUN public (`stun:stun.l.google.com:19302`). Pas de TURN en v1 (coût ; suffisant pour la plupart des Wi-Fi domestiques).
+- **Communication média** : WebRTC (`RTCPeerConnection`, tracks vidéo + audio). STUN public (`stun:stun.l.google.com:19302`) + TURN de secours (`turn:openrelay.metered.ca:80`, OpenRelay) pour les NAT symétriques ; `?turn=0` désactive le TURN, `?turn=`/`?turnuser=`/`?turnpass=` le surchargent.
 - **Signalisation** : manuelle par QR code (voir §5).
 - **Alertes** : `RTCDataChannel` caméra → viewers (voir §8.3).
 
@@ -244,7 +244,7 @@ Chaque incrément est petit, testé (unitaires vitest, plus E2E Playwright quand
 | SDP trop gros pour un QR | Compression + QR chunkés en séquence + copier-coller en secours |
 | Autoplay audio bloqué (iOS) | Bouton « Activer le son » après geste utilisateur |
 | iOS Safari : quirks PWA/WebRTC/Wake Lock | Cible best effort, test manuel si matériel dispo ; messages d'erreur explicites |
-| NAT symétrique empêche le P2P (STUN insuffisant) | Message d'erreur clair ; TURN payant hors scope v1 |
+| NAT symétrique empêche le P2P (STUN insuffisant) | TURN de secours par défaut (OpenRelay, `?turn=0` pour désactiver) ; si le gathering se termine sans candidat `relay`, message clair affiché (statut + log diag) |
 | Fuite du QR (photo) | Accepté (usage réseau local) ; révocation manuelle + QR régénérable |
 | `base` oublié → assets cassés sur `/babycam/` | `base: '/babycam/'` dans Vite + vérification en phase 0 |
 | Relais indisponible (v2) | Le QR reste le mode d'appairage par défaut et le secours |
@@ -257,6 +257,6 @@ Chaque incrément est petit, testé (unitaires vitest, plus E2E Playwright quand
 
 - Nom de l'app : « Babycam » ; icônes : placeholder à remplacer.
 - Nom affiché pour chaque viewer : saisi par le viewer à la connexion (champ libre).
-- STUN : `stun:stun.l.google.com:19302` ; pas de TURN en v1.
+- STUN : `stun:stun.l.google.com:19302` ; TURN de secours : `turn:openrelay.metered.ca:80` (OpenRelay, identifiants publics embarqués ; `?turn=`/`?turnuser=`/`?turnpass=` pour un relais perso, `?turn=0` pour désactiver). Si aucun candidat `relay` n'est collecté, un message clair signale que le TURN est injoignable.
 - Push notifications : reportées en v2+ et hors périmètre « 100 % statique ».
 - Relais v2 : URL du Worker Cloudflare à déployer (`relay/`) et décision sur le chiffrement E2E de la signalisation (clé dérivée du code de salon).

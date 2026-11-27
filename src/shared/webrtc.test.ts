@@ -4,7 +4,10 @@ import {
   DEFAULT_TURN_CREDENTIAL,
   DEFAULT_TURN_URL,
   DEFAULT_TURN_USERNAME,
+  hasTurnServer,
   iceServersFromLocation,
+  isRelayCandidate,
+  turnFailedAfterGathering,
 } from './webrtc';
 
 describe('iceServersFromLocation', () => {
@@ -54,5 +57,48 @@ describe('iceServersFromLocation', () => {
     vi.stubGlobal('location', { search: '?turnuser=bob&turnpass=pw' });
     const servers = iceServersFromLocation();
     expect(servers[1]).toEqual({ urls: DEFAULT_TURN_URL, username: 'bob', credential: 'pw' });
+  });
+});
+
+describe('hasTurnServer', () => {
+  it('détecte turn: et turns: (string ou tableau d’URLs)', () => {
+    expect(hasTurnServer([])).toBe(false);
+    expect(hasTurnServer([{ urls: 'stun:stun.l.google.com:19302' }])).toBe(false);
+    expect(hasTurnServer([{ urls: 'turn:openrelay.metered.ca:80' }])).toBe(true);
+    expect(hasTurnServer([{ urls: 'turns:turn.example.com:443' }])).toBe(true);
+    expect(hasTurnServer([{ urls: ['stun:x:3478', 'turn:x:3478'] }])).toBe(true);
+  });
+});
+
+describe('isRelayCandidate', () => {
+  it('ne retient que les candidats typ relay', () => {
+    expect(isRelayCandidate('candidate:842163049 1 udp 1677729535 203.0.113.7 54400 typ relay raddr 10.0.0.1 rport 54400 generation 0')).toBe(true);
+    expect(isRelayCandidate('candidate:1 1 udp 2122260223 192.168.1.2 54400 typ srflx raddr 10.0.0.1 rport 54400')).toBe(false);
+    expect(isRelayCandidate('candidate:2 1 udp 41819902 192.168.1.2 54401 typ host')).toBe(false);
+  });
+});
+
+describe('turnFailedAfterGathering', () => {
+  const withTurn: RTCIceServer[] = [{ urls: DEFAULT_TURN_URL, username: 'u', credential: 'p' }];
+  const stunOnly: RTCIceServer[] = [{ urls: DEFAULT_STUN_URL }];
+
+  it('TURN configuré + aucun candidat relais après gathering = échec TURN', () => {
+    expect(turnFailedAfterGathering(withTurn, false)).toBe(true);
+  });
+
+  it('un candidat relais récolté = TURN fonctionnel', () => {
+    expect(turnFailedAfterGathering(withTurn, true)).toBe(false);
+  });
+
+  it('sans TURN configuré, l’absence de relais n’est pas un échec', () => {
+    expect(turnFailedAfterGathering(stunOnly, false)).toBe(false);
+    expect(turnFailedAfterGathering([], false)).toBe(false);
+  });
+
+  it('la config par défaut (STUN + TURN) est détectée comme ayant un TURN', () => {
+    vi.stubGlobal('location', { search: '' });
+    const servers = iceServersFromLocation();
+    expect(hasTurnServer(servers)).toBe(true);
+    expect(turnFailedAfterGathering(servers, false)).toBe(true);
   });
 });
