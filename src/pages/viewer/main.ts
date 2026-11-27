@@ -9,6 +9,12 @@ import { thresholdToDbfs } from '../../shared/detection/noise';
 import { playAlertSound, pushAlertHistory, showAlertBanner, vibrate } from '../../shared/alerts';
 import { RelayClient, relayUrlFromLocation } from '../../shared/relay';
 import { addDiagLog, candidateAddress } from '../../shared/diag';
+import {
+  pushSupported,
+  subscribePush,
+  subscriptionToPayload,
+  type PushSubscriptionPayload,
+} from '../../shared/push';
 
 applyTranslations();
 const langSelect = document.querySelector<HTMLSelectElement>('#lang-select');
@@ -33,8 +39,66 @@ const noiseThreshold = qs<HTMLInputElement>('#noise-threshold');
 const motionSens = qs<HTMLInputElement>('#motion-sens');
 const noiseMeter = qs<HTMLDivElement>('#noise-meter');
 const noiseDbfs = qs<HTMLSpanElement>('#noise-dbfs');
+const pushBtn = qs<HTMLButtonElement>('#push-btn');
+const pushStatus = qs<HTMLParagraphElement>('#push-status');
 const NOISE_KEY = 'babycam.noiseThreshold';
 const MOTION_KEY = 'babycam.motionSens';
+const PUSH_SUB_KEY = 'babycam.pushSub';
+
+// Subscription push persistée : renvoyée au relais à chaque connexion de salon.
+function storedPushSub(): PushSubscriptionPayload | null {
+  try {
+    const raw = localStorage.getItem(PUSH_SUB_KEY);
+    if (!raw) return null;
+    const m = JSON.parse(raw) as PushSubscriptionPayload;
+    if (typeof m?.endpoint === 'string' && m?.keys?.p256dh && m?.keys?.auth) return m;
+  } catch {
+    // stockage indisponible ou JSON invalide : on ignore
+  }
+  return null;
+}
+
+function sendPushSub(): void {
+  const sub = storedPushSub();
+  if (sub && relay && relay.wsState === WebSocket.OPEN) relay.sendPushSubscription(sub);
+}
+
+async function registerPush(): Promise<void> {
+  if (!pushSupported()) {
+    pushStatus.textContent = t('viewer.push.unsupported');
+    return;
+  }
+  pushBtn.disabled = true;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await subscribePush(reg);
+    const payload = sub ? subscriptionToPayload(sub) : null;
+    if (!payload) {
+      pushStatus.textContent = t('viewer.push.denied');
+      return;
+    }
+    localStorage.setItem(PUSH_SUB_KEY, JSON.stringify(payload));
+    sendPushSub();
+    pushStatus.textContent =
+      relay && relay.wsState === WebSocket.OPEN ? t('viewer.push.sent') : t('viewer.push.enabled');
+    // Le push service peut renouveler la subscription : on la renvoie au relais.
+    (reg.pushManager as unknown as EventTarget).addEventListener('pushsubscriptionchange', () => {
+      void (async () => {
+        const fresh = await subscribePush(reg);
+        const p = fresh ? subscriptionToPayload(fresh) : null;
+        if (p) {
+          localStorage.setItem(PUSH_SUB_KEY, JSON.stringify(p));
+          sendPushSub();
+        }
+      })();
+    });
+  } finally {
+    pushBtn.disabled = false;
+  }
+}
+
+pushBtn.addEventListener('click', () => void registerPush());
+if (storedPushSub()) pushStatus.textContent = t('viewer.push.enabled');
 noiseThreshold.value = localStorage.getItem(NOISE_KEY) ?? '70';
 motionSens.value = localStorage.getItem(MOTION_KEY) ?? '50';
 let lastDbfs: number | null = null;
@@ -172,6 +236,9 @@ async function joinRoom(): Promise<void> {
     return;
   }
   relay = new RelayClient(relayParam);
+  relay.onPushAck = (ok) => {
+    if (ok && storedPushSub()) pushStatus.textContent = t('viewer.push.sent');
+  };
   relay.onPresence = (cameras) => {
     cameraList.innerHTML = '';
     for (const cam of cameras) {
@@ -228,6 +295,8 @@ async function joinRoom(): Promise<void> {
   waitingText.textContent = t('viewer.wiz.waiting');
   setStatus(t('viewer.status.joined'));
   addDiagLog(diagLog, `salon rejoint: ${room}`);
+  // On renvoie la subscription push enregistrée (si présente) au relais du salon.
+  sendPushSub();
 }
 
 joinRoomBtn.addEventListener('click', () => void joinRoom());
@@ -249,5 +318,7 @@ if (new URLSearchParams(location.search).get('debug') === '1') {
     getDataLog: () => dataLog,
     getRemoteSdp: () => peer?.pc?.remoteDescription?.sdp ?? null,
     getLastLevel: () => lastDbfs,
+    getPushStatus: () => pushStatus.textContent,
+    getPushSub: () => storedPushSub(),
   };
 }

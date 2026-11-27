@@ -36,6 +36,31 @@ Le salon vit dans un Durable Object : son état est stocké dans les attachments
 
 L'URL déployée est renseignée dans `src/shared/relay.ts` (`DEFAULT_RELAY_URL` = `wss://babycam-relay.veille-cron.workers.dev`). Le bouton « Appairer » de la caméra (page dédiée `#/pair`) crée un salon et affiche un **petit QR de salon** (`BCAM1/R/CODE`) : le SDP passe par le relais, jamais par le QR. `?relay=<wss://…>` remplace le relais dans l'URL (les tests E2E utilisent un relais mock local).
 
+## Notifications push (alertes même page viewer fermée)
+
+Hors périmètre « 100 % statique » : le relais sert aussi à pousser des **Web Push** (RFC 8030/8291/8292) aux viewers abonnés d'un salon.
+
+- **Viewer** : bouton « Activer les notifications » → permission + `pushManager.subscribe()` (clé publique VAPID embarquée dans `src/shared/push.ts`) → la subscription est envoyée au relais sur le WebSocket du salon (`{type:'push', sub}`) et persistée en `localStorage` (renvoyée à chaque connexion, gérée aussi via `pushsubscriptionchange`).
+- **Relais** (`relay/src/index.ts`) : stocke les subscriptions dans le **stockage SQLite du Durable Object** (elles survivent à l'hibernation et à la fermeture des sockets), et sur `{type:'alert'}` envoyé par la caméra, envoie un push chiffré `aes128gcm` + en-tête VAPID ES256 à chaque subscription (404/410 → subscription supprimée). Le chiffrement/jeton est implémenté en WebCrypto pur dans `src/shared/webpush.ts` (validé octet pour octet contre le vecteur de test RFC 8291).
+- **Service worker** (`src/sw.ts`, stratégie `injectManifest`) : précache de l'app shell + `push` → `showNotification` (icône, tag, vibration, `data.url = viewer.html`) + `notificationclick` → focus de la fenêtre viewer existante ou `openWindow`.
+- **Caméra** : chaque alerte (bruit/mouvement) part à la fois sur le DataChannel P2P (viewers connectés) et vers le relais (`relay.sendAlert`) pour les viewers abonnés dont la page est fermée.
+
+Déploiement (une fois) :
+
+```bash
+cd relay
+npx wrangler secret put VAPID_PRIVATE_KEY   # clé privée de la paire (voir ci-dessous)
+npx wrangler deploy                          # à relancer après chaque modif de relay/
+```
+
+La paire VAPID courante (démo, générée par `npm run vapid` — régénère-la pour un usage réel) :
+
+- `VAPID_PUBLIC_KEY` = `BN6ibnuYU1YDqHLFzDGKS_v0RuOovO-KMff_1HIcSfrfRZ1RGhm-K34-RCj_kWi2xTrHNCBKoNG_pXzRene33rY` (dans `src/shared/push.ts` et `relay/wrangler.toml`)
+- `VAPID_PRIVATE_KEY` = `-gyzLqckWUj7Ai9mYynDJMUJy4HKl0Y2WG886DBAtg0` (à poser via `wrangler secret put`, ne pas committer)
+- `VAPID_SUBJECT` = `mailto:babycam@veille-cron.workers.dev` (dans `relay/wrangler.toml` [vars])
+
+Pour régénérer une paire : `npm run vapid`, puis mettre à jour la clé publique dans `src/shared/push.ts` + `relay/wrangler.toml`, poser la privée en secret, et redéployer le relais.
+
 ## Méthodologie
 
 Un incrément = un commit = tests verts (voir docs/plan.md §13). Les tests E2E produisent des screenshots commités dans `docs/screenshots/`.

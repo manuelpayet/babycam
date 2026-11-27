@@ -1,5 +1,11 @@
+import { sendWebPush, type WebPushSubscriptionJSON } from '../../src/shared/webpush';
+
 export interface Env {
   ROOM: DurableObjectNamespace;
+  // Secrets/vars du worker (wrangler.toml [vars] + `wrangler secret put VAPID_PRIVATE_KEY`).
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  VAPID_SUBJECT?: string;
 }
 
 interface Attachment {
@@ -12,8 +18,13 @@ interface Attachment {
 // PAS dans une Map en mémoire : un Durable Object peut être évincé à tout moment
 // (hibernation), et seule l'attachment survit à l'éviction. getWebSockets() renvoie
 // les sockets hibernés, donc la présence reste correcte même après éviction.
+// Les subscriptions push, elles, sont dans le stockage SQLite du DO (table push_subs) :
+// elles doivent survivre même quand tous les sockets du salon sont fermés.
 export class RoomDO {
-  constructor(private state: DurableObjectState) {}
+  constructor(
+    private state: DurableObjectState,
+    private env: Env,
+  ) {}
 
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get('Upgrade') !== 'websocket') {
@@ -55,6 +66,40 @@ export class RoomDO {
         this.forward(m.to as string, { ...m, from: att.id });
         break;
       }
+      case 'push': {
+        // Un viewer enregistre sa subscription Web Push pour ce salon.
+        if (att.role !== 'viewer') return;
+        const sub = m.sub as WebPushSubscriptionJSON | undefined;
+        if (
+          !sub ||
+          typeof sub.endpoint !== 'string' ||
+          !sub.endpoint.startsWith('https://') ||
+          typeof sub.keys?.p256dh !== 'string' ||
+          typeof sub.keys?.auth !== 'string'
+        ) {
+          ws.send(JSON.stringify({ type: 'push-ack', ok: false }));
+          return;
+        }
+        this.ensurePushTable();
+        this.state.storage.sql.exec(
+          'INSERT INTO push_subs (endpoint, sub, ts) VALUES (?, ?, ?) ON CONFLICT(endpoint) DO UPDATE SET sub = excluded.sub, ts = excluded.ts',
+          sub.endpoint,
+          JSON.stringify(sub),
+          Date.now(),
+        );
+        ws.send(JSON.stringify({ type: 'push-ack', ok: true }));
+        break;
+      }
+      case 'alert': {
+        // La caméra signale une alerte : push Web Push vers tous les viewers abonnés
+        // du salon (utile quand la page viewer est fermée, le flux DataChannel étant P2P).
+        if (att.role !== 'camera') return;
+        const kind = m.kind === 'motion' ? 'motion' : 'noise';
+        const level = typeof m.level === 'number' ? m.level : 0;
+        const ts = typeof m.ts === 'number' ? m.ts : Date.now();
+        await this.dispatchAlert({ v: 1, kind, level, ts });
+        break;
+      }
     }
   }
 
@@ -64,6 +109,38 @@ export class RoomDO {
 
   async webSocketError(): Promise<void> {
     this.broadcastPresence();
+  }
+
+  private ensurePushTable(): void {
+    this.state.storage.sql.exec(
+      'CREATE TABLE IF NOT EXISTS push_subs (endpoint TEXT PRIMARY KEY, sub TEXT NOT NULL, ts INTEGER NOT NULL)',
+    );
+  }
+
+  private async dispatchAlert(payload: { v: 1; kind: 'noise' | 'motion'; level: number; ts: number }): Promise<void> {
+    const priv = this.env.VAPID_PRIVATE_KEY;
+    const pub = this.env.VAPID_PUBLIC_KEY;
+    const subject = this.env.VAPID_SUBJECT ?? 'mailto:admin@example.com';
+    if (!priv || !pub) return; // VAPID non configuré : pas de push
+    this.ensurePushTable();
+    const rows = this.state.storage.sql
+      .exec('SELECT endpoint, sub FROM push_subs')
+      .toArray() as unknown as { endpoint: string; sub: string }[];
+    const text = JSON.stringify(payload);
+    await Promise.allSettled(
+      rows.map(async (row) => {
+        try {
+          const sub = JSON.parse(row.sub) as WebPushSubscriptionJSON;
+          const res = await sendWebPush(sub, text, { subject, privateKeyB64url: priv, publicKeyB64url: pub });
+          if (res.gone) {
+            // 404/410 : la subscription est morte, on la supprime.
+            this.state.storage.sql.exec('DELETE FROM push_subs WHERE endpoint = ?', row.endpoint);
+          }
+        } catch {
+          // endpoint injoignable : on ignore
+        }
+      }),
+    );
   }
 
   private sockets(): { ws: WebSocket; att: Attachment | null }[] {

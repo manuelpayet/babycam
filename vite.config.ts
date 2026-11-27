@@ -16,14 +16,16 @@ export default defineConfig({
   define: { __BABYCAM_BUILD__: JSON.stringify(buildId()) },
   plugins: [
     VitePWA({
+      // SW maison (src/sw.ts) : précache de l'app shell + gestion des notifications push.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       injectRegister: false,
       includeAssets: ['icons/*.png', 'manifest.webmanifest'],
       manifest: false,
       devOptions: { enabled: false },
-      workbox: {
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,png,webmanifest,svg}'],
-        skipWaiting: true,
-        clientsClaim: true,
       },
     }),
   ],

@@ -1,3 +1,5 @@
+import type { AlertKind } from './webrtc';
+
 export type RelayRole = 'camera' | 'viewer';
 
 export interface PresenceCamera {
@@ -44,6 +46,7 @@ export class RelayClient {
   onSignal?: (from: string, msg: unknown) => void;
   onCandidate?: (from: string, candidate: RTCIceCandidateInit) => void;
   onReconnecting?: (attempt: number, delayMs: number) => void;
+  onPushAck?: (ok: boolean) => void;
 
   constructor(private url: string) {}
 
@@ -103,6 +106,9 @@ export class RelayClient {
           case 'candidate':
             this.onCandidate?.(m.from as string, m.candidate as RTCIceCandidateInit);
             break;
+          case 'push-ack':
+            this.onPushAck?.(m.ok === true);
+            break;
         }
       };
     });
@@ -132,6 +138,17 @@ export class RelayClient {
 
   candidate(to: string, candidate: RTCIceCandidateInit): void {
     this.send({ type: 'candidate', to, candidate });
+  }
+
+  // Un viewer enregistre sa subscription Web Push auprès du salon (stockée côté relais,
+  // elle survit à la fermeture de la page et déclenche les notifications push).
+  sendPushSubscription(sub: unknown): void {
+    this.send({ type: 'push', sub });
+  }
+
+  // La caméra signale une alerte au relais, qui la pousse en Web Push aux viewers abonnés.
+  sendAlert(kind: AlertKind, level: number, ts: number): void {
+    this.send({ type: 'alert', kind, level, ts });
   }
 
   close(): void {

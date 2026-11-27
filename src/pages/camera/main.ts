@@ -126,7 +126,11 @@ function applySettings(m: SettingsMessage): void {
 }
 
 function onAlert(kind: AlertKind, level: number): void {
-  peers?.sendToAll({ type: 'alert', kind, level, ts: Date.now() });
+  const ts = Date.now();
+  peers?.sendToAll({ type: 'alert', kind, level, ts });
+  // Le relais pousse aussi l'alerte en notification push aux viewers abonnés
+  // (utile quand la page viewer est fermée : le DataChannel ci-dessus est P2P).
+  relay?.sendAlert(kind, level, ts);
   flash.hidden = false;
   flash.classList.remove('on');
   void flash.offsetWidth;
@@ -301,5 +305,6 @@ if (new URLSearchParams(location.search).get('debug') === '1') {
     getRoomCode: () => roomCodeEl.textContent ?? '',
     getNoiseThresholdDbfs: () => noiseDet?.thresholdDbfs ?? null,
     getMotionRatioThreshold: () => motionDet?.ratioThreshold ?? null,
+    triggerAlert: (kind: AlertKind, level = -20) => onAlert(kind, level),
   };
 }
