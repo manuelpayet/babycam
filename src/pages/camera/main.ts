@@ -7,7 +7,8 @@ import { registerPwa } from '../../shared/pwa';
 import { CameraPeers, iceServersFromLocation, type AlertKind, type SettingsMessage } from '../../shared/webrtc';
 import { NoiseDetector } from '../../shared/detection/noise';
 import { MotionDetector } from '../../shared/detection/motion';
-import { RelayClient, newRoomCode, relayUrlFromLocation } from '../../shared/relay';
+import { RelayClient, newRoomCode, relayUrlFromLocation, type RequestInfo } from '../../shared/relay';
+import { loadOrCreateDeviceIdentity, type DeviceIdentity } from '../../shared/device-key';
 import { addDiagLog, candidateAddress } from '../../shared/diag';
 import type { SignalMessage } from '../../shared/signaling';
 
@@ -142,6 +143,8 @@ const qrCanvas = qs<HTMLCanvasElement>('#qr-canvas');
 const qrPos = qs<HTMLSpanElement>('#qr-pos');
 const roomPayload = qs<HTMLTextAreaElement>('#room-payload');
 const viewersList = qs<HTMLUListElement>('#viewers');
+const pendingSec = qs<HTMLElement>('#pending-sec');
+const pendingList = qs<HTMLUListElement>('#pending-requests');
 
 let peers: CameraPeers | null = null;
 let carousel: QrCarousel | null = null;
@@ -165,6 +168,17 @@ function renderDiag(): void {
 }
 setInterval(renderDiag, 1000);
 
+// Révoque un viewer : ferme le peer ET retire sa clé publique des approvedDevices
+// du relais (le relais notifie le viewer).
+function revokePeer(peerId: string): void {
+  peers?.revoke(peerId);
+  const from = relayFromByPeer.get(peerId);
+  if (from) {
+    relay?.revoke(from);
+    relayFromByPeer.delete(peerId);
+  }
+}
+
 function renderViewers(): void {
   viewersList.innerHTML = '';
   for (const p of peers?.list ?? []) {
@@ -174,7 +188,7 @@ function renderViewers(): void {
     const revokeBtn = document.createElement('button');
     revokeBtn.className = 'btn btn-small';
     revokeBtn.textContent = t('camera.revoke');
-    revokeBtn.addEventListener('click', () => peers?.revoke(p.id));
+    revokeBtn.addEventListener('click', () => revokePeer(p.id));
     li.append(label, ' ', revokeBtn);
     viewersList.append(li);
   }
@@ -237,35 +251,70 @@ qs<HTMLButtonElement>('#pair-start-btn').addEventListener('click', () => void st
 const roomCodeEl = qs<HTMLParagraphElement>('#room-code');
 const relayStatus = qs<HTMLParagraphElement>('#relay-status');
 let relay: RelayClient | null = null;
+let deviceIdentity: DeviceIdentity | null = null;
 const relayFromByPeer = new Map<string, string>();
+const pendingFrom = new Set<string>();
+const pendingRequests = new Map<string, RequestInfo>();
+
+function renderPending(): void {
+  pendingList.innerHTML = '';
+  for (const [from, req] of pendingRequests) {
+    const li = document.createElement('li');
+    const label = document.createElement('span');
+    label.textContent = `${req.name || from.slice(0, 8)}… (clé ${req.pubkey.slice(0, 8)}…)`;
+    const approveBtn = document.createElement('button');
+    approveBtn.className = 'btn btn-small';
+    approveBtn.textContent = t('camera.approve');
+    approveBtn.addEventListener('click', () => void answerRequest(from));
+    li.append(label, ' ', approveBtn);
+    pendingList.append(li);
+  }
+  pendingSec.hidden = pendingRequests.size === 0;
+}
+
+// Envoie l'offre à un viewer. Si la requête était approuvée (clé publique enregistrée
+// côté caméra dans le relais), c'est la ré-approbation automatique ; sinon l'offre
+// elle-même approuve le viewer côté relais.
+async function answerRequest(from: string): Promise<void> {
+  const existing = [...relayFromByPeer.entries()].find(([, f]) => f === from);
+  if (existing) {
+    const state = peers?.list.find((p) => p.id === existing[0])?.state;
+    if (state === 'new' || state === 'connecting' || state === 'connected') return;
+  }
+  if (pendingFrom.has(from)) return;
+  pendingFrom.add(from);
+  pendingRequests.delete(from);
+  renderPending();
+  addDiagLog(diagLog, `requête de ${from.slice(0, 8)}…`);
+  try {
+    const { id, msg } = await ensurePeers(iceServersFromLocation()).createOffer();
+    relayFromByPeer.set(id, from);
+    relay!.signal(from, msg);
+    const buffered = peers?.list.find((p) => p.id === id)?.localCandidates ?? [];
+    for (const c of buffered) relay!.candidate(from, { candidate: c });
+    addDiagLog(diagLog, `offre envoyée à ${from.slice(0, 8)}… (${buffered.length} candidats déjà collectés)`);
+  } finally {
+    pendingFrom.delete(from);
+  }
+}
 
 async function startRelayRoom(relayUrl: string): Promise<string> {
   ensurePeers(iceServersFromLocation());
   relay = new RelayClient(relayUrl);
   const room = newRoomCode();
-  const pendingFrom = new Set<string>();
+  deviceIdentity ??= await loadOrCreateDeviceIdentity();
   relay.onReconnecting = (attempt, delay) => {
     relayStatus.textContent = `${relayUrl} — reconnexion #${attempt} dans ${delay} ms`;
   };
   relayStatus.textContent = relayUrl;
-  relay.onRequest = async (from) => {
-    const existing = [...relayFromByPeer.entries()].find(([, f]) => f === from);
-    if (existing) {
-      const state = peers?.list.find((p) => p.id === existing[0])?.state;
-      if (state === 'new' || state === 'connecting' || state === 'connected') return;
-    }
-    if (pendingFrom.has(from)) return;
-    pendingFrom.add(from);
-    addDiagLog(diagLog, `requête reçue de ${from.slice(0, 8)}…`);
-    try {
-      const { id, msg } = await ensurePeers(iceServersFromLocation()).createOffer();
-      relayFromByPeer.set(id, from);
-      relay!.signal(from, msg);
-      const buffered = peers?.list.find((p) => p.id === id)?.localCandidates ?? [];
-      for (const c of buffered) relay!.candidate(from, { candidate: c });
-      addDiagLog(diagLog, `offre envoyée à ${from.slice(0, 8)}… (${buffered.length} candidats déjà collectés)`);
-    } finally {
-      pendingFrom.delete(from);
+  relay.onRequest = (from, req) => {
+    if (req.approved) {
+      // Clé publique déjà approuvée côté caméra dans le relais : ré-approbation auto.
+      void answerRequest(from);
+    } else {
+      // Nouvelle clé : approbation explicite requise (bouton « Autoriser »).
+      pendingRequests.set(from, req);
+      renderPending();
     }
   };
   relay.onCandidate = (from, cand) => {
@@ -287,7 +336,7 @@ async function startRelayRoom(relayUrl: string): Promise<string> {
       addDiagLog(diagLog, `réponse appliquée pour ${from.slice(0, 8)}…`);
     }
   };
-  await relay.connect(room, 'camera', 'Caméra', { autoReconnect: true });
+  await relay.connect(room, 'camera', 'Caméra', { autoReconnect: true, pubkey: deviceIdentity.pubkey });
   addDiagLog(diagLog, `salon créé: ${room}`);
   return room;
 }
@@ -297,6 +346,10 @@ if (new URLSearchParams(location.search).get('debug') === '1') {
     getStream: () => stream,
     wakeLockActive: () => wakeLock.active,
     getPeers: () => peers?.list ?? [],
+    revokeFirst: () => {
+      const p = peers?.list[0];
+      if (p) revokePeer(p.id);
+    },
     sendToAll: (m: unknown) => peers?.sendToAll(m as never),
     getRoomCode: () => roomCodeEl.textContent ?? '',
     getNoiseThresholdDbfs: () => noiseDet?.thresholdDbfs ?? null,

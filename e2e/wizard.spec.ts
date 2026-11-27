@@ -40,7 +40,7 @@ test('caméra : « Appairer » ouvre la page dédiée #/pair avec le QR du code 
   await expect(cam.locator('#room-payload')).toHaveValue(qrText!);
   await shot(cam, 'I4.1-camera-wizard-room');
 
-  await joinRoomAndConnect(view, relay.url, room);
+  await joinRoomAndConnect(cam, view, relay.url, room);
   await expect(cam.locator('body')).toHaveClass(/view-main/);
   await expect(cam.locator('#viewers li')).toHaveCount(1);
   await shot(cam, 'I4.1-camera-wizard-done');
@@ -79,7 +79,7 @@ test('viewer : connexion via le salon → bascule sur la vue vidéo #/', async (
 
   await startCamera(cam, relay.url);
   const room = await createRoom(cam);
-  await joinRoomAndConnect(view, relay.url, room);
+  await joinRoomAndConnect(cam, view, relay.url, room);
 
   await expect(view.locator('body')).toHaveClass(/view-main/);
   await expect(view.locator('#remote')).toBeVisible();

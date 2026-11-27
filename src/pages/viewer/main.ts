@@ -8,6 +8,8 @@ import { iceServersFromLocation, ViewerPeer, type DataMessage } from '../../shar
 import { thresholdToDbfs } from '../../shared/detection/noise';
 import { playAlertSound, pushAlertHistory, showAlertBanner, vibrate } from '../../shared/alerts';
 import { RelayClient, relayUrlFromLocation } from '../../shared/relay';
+import { signDeviceAuth } from '../../shared/device-auth';
+import { loadOrCreateDeviceIdentity, type DeviceIdentity } from '../../shared/device-key';
 import { addDiagLog, candidateAddress } from '../../shared/diag';
 
 applyTranslations();
@@ -79,13 +81,23 @@ const dataLog: DataMessage[] = [];
 let relay: RelayClient | null = null;
 let lastCameraFrom: string | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+let deviceIdentity: DeviceIdentity | null = null;
 const relayParam = relayUrlFromLocation();
+
+// Requête d'accès signée avec la clé privée de l'appareil : le relais vérifie la
+// signature (preuve de possession) avant de la transmettre à la caméra.
+async function requestAccess(cameraId: string): Promise<void> {
+  if (!relay) return;
+  deviceIdentity ??= await loadOrCreateDeviceIdentity();
+  const auth = await signDeviceAuth(deviceIdentity.privateKey, deviceIdentity.pubkey, cameraId);
+  relay.request(cameraId, auth);
+}
 
 function requestReconnect(): void {
   if (!relay || !lastCameraFrom) return;
   clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(() => {
-    if (peer?.pc?.connectionState !== 'connected') relay?.request(lastCameraFrom!);
+    if (peer?.pc?.connectionState !== 'connected' && lastCameraFrom) void requestAccess(lastCameraFrom);
   }, 3000);
 }
 
@@ -172,6 +184,7 @@ async function joinRoom(): Promise<void> {
     return;
   }
   relay = new RelayClient(relayParam);
+  deviceIdentity ??= await loadOrCreateDeviceIdentity();
   relay.onPresence = (cameras) => {
     cameraList.innerHTML = '';
     for (const cam of cameras) {
@@ -181,15 +194,28 @@ async function joinRoom(): Promise<void> {
       btn.textContent = cam.name || cam.id;
       btn.addEventListener('click', () => {
         lastCameraFrom = cam.id;
-        relay?.request(cam.id);
+        void requestAccess(cam.id);
       });
       li.append(btn);
       cameraList.append(li);
     }
     if (cameras.length === 1) {
       lastCameraFrom = cameras[0].id;
-      relay?.request(cameras[0].id);
+      void requestAccess(cameras[0].id);
     }
+  };
+  relay.onRejected = (reason) => {
+    setStatus(`${t('viewer.authRejected')} (${reason})`);
+    addDiagLog(diagLog, `requête rejetée par le relais: ${reason}`);
+  };
+  relay.onRevoke = (from) => {
+    if (from !== lastCameraFrom) return;
+    lastCameraFrom = null;
+    clearTimeout(reconnectTimer);
+    if (peer?.pc && peer.pc.connectionState !== 'closed') peer.pc.close();
+    remote.srcObject = null;
+    setStatus(t('viewer.status.lost'));
+    addDiagLog(diagLog, 'accès révoqué par la caméra');
   };
   relay.onCandidate = (from, cand) => {
     if (from === lastCameraFrom) peer?.addCandidate(cand);
@@ -218,7 +244,7 @@ async function joinRoom(): Promise<void> {
     }
   };
   try {
-    await relay.connect(room, 'viewer', viewerName.value.trim() || 'Viewer', { autoReconnect: true });
+    await relay.connect(room, 'viewer', viewerName.value.trim() || 'Viewer', { autoReconnect: true, pubkey: deviceIdentity.pubkey });
   } catch (err) {
     setStatus(String(err));
     addDiagLog(diagLog, `erreur join salon: ${String(err)}`);

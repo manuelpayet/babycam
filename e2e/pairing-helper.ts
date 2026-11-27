@@ -17,10 +17,21 @@ export async function createRoom(cam: Page): Promise<string> {
   return (await cam.locator('#room-code').textContent())!.trim();
 }
 
-export async function joinRoomAndConnect(view: Page, relayUrl: string, room: string): Promise<void> {
+// Approuve `count` demandes d'accès en attente côté caméra (bouton « Autoriser ») :
+// une clé publique inconnue du relais n'obtient l'offre qu'après cette approbation.
+export async function approvePending(cam: Page, count = 1): Promise<void> {
+  for (let i = 0; i < count; i++) {
+    const btn = cam.locator('#pending-requests li button').first();
+    await btn.waitFor({ state: 'visible', timeout: 15_000 });
+    await btn.click();
+  }
+}
+
+export async function joinRoomAndConnect(cam: Page, view: Page, relayUrl: string, room: string): Promise<void> {
   await view.goto('viewer.html' + relayParams(relayUrl));
   await view.fill('#room-input', room);
   await view.click('#join-room-btn');
+  await approvePending(cam);
   await view.waitForFunction(
     () => {
       const video = document.querySelector<HTMLVideoElement>('#remote');
@@ -33,5 +44,5 @@ export async function joinRoomAndConnect(view: Page, relayUrl: string, room: str
 
 export async function pairViaRoom(cam: Page, view: Page, relayUrl: string): Promise<void> {
   const room = await createRoom(cam);
-  await joinRoomAndConnect(view, relayUrl, room);
+  await joinRoomAndConnect(cam, view, relayUrl, room);
 }

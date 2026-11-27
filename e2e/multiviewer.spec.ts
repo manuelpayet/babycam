@@ -14,8 +14,8 @@ test('multi-viewers : 1 caméra → 2 viewers via le même salon, révocation', 
 
   await startCamera(cam, relay.url);
   const room = await createRoom(cam);
-  await joinRoomAndConnect(view1, relay.url, room);
-  await joinRoomAndConnect(view2, relay.url, room);
+  await joinRoomAndConnect(cam, view1, relay.url, room);
+  await joinRoomAndConnect(cam, view2, relay.url, room);
 
   await expect(cam.locator('#viewers li')).toHaveCount(2);
   await shot(cam, 'I1.7-camera-2viewers');

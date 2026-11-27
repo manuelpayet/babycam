@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { approvePending } from './pairing-helper';
 import { killMockRelay, startMockRelay } from './mock-relay';
 import { shot } from './helpers';
 
@@ -29,6 +30,7 @@ test('découverte par salon : la caméra publie sa présence, le viewer rejoint 
   await shot(view, 'I2.4-viewer-room-list');
 
   await view.locator('#camera-list button').first().click();
+  await approvePending(cam);
   await view.waitForFunction(
     () => {
       const video = document.querySelector<HTMLVideoElement>('#remote');

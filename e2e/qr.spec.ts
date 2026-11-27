@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import jsQR from 'jsqr';
+import { approvePending } from './pairing-helper';
 import { debugParams, shot } from './helpers';
 import { killMockRelay, startMockRelay } from './mock-relay';
 
@@ -48,6 +49,7 @@ test('QR d’appairage = code de salon (relais) : minuscule, décodable, identiq
   await view.goto(`viewer.html?stun=0&debug=1&relay=${relayParam}`);
   await view.fill('#room-input', room);
   await view.click('#join-room-btn');
+  await approvePending(cam);
   await view.waitForFunction(
     () => {
       const video = document.querySelector<HTMLVideoElement>('#remote');

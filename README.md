@@ -34,6 +34,8 @@ npx wrangler tail     # logs en temps réel
 
 Le salon vit dans un Durable Object : son état est stocké dans les attachments des WebSockets (`serializeAttachment`), donc il survit à l'éviction de l'objet par Cloudflare.
 
+**Appairage par paire de clés** : chaque appareil génère une paire ECDSA P-256 (clé privée en `localStorage`, clé publique envoyée au `join`). Chaque requête de viewer est signée et vérifiée par le relais ; les clés publiques approuvées sont stockées côté caméra dans le relais (DO storage) — une clé approuvée est ré-approuvée automatiquement à la reconnexion, une clé inconnue exige un clic « Autoriser » sur la caméra, et « Révoquer » la retire.
+
 L'URL déployée est renseignée dans `src/shared/relay.ts` (`DEFAULT_RELAY_URL` = `wss://babycam-relay.veille-cron.workers.dev`). Le bouton « Appairer » de la caméra (page dédiée `#/pair`) crée un salon et affiche un **petit QR de salon** (`BCAM1/R/CODE`) : le SDP passe par le relais, jamais par le QR. `?relay=<wss://…>` remplace le relais dans l'URL (les tests E2E utilisent un relais mock local).
 
 ## Méthodologie

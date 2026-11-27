@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { approvePending } from './pairing-helper';
 import { killMockRelay, startMockRelay } from './mock-relay';
 import { shot } from './helpers';
 
@@ -14,12 +15,13 @@ async function startCameraWithRelay(cam: import('@playwright/test').Page, relayP
   return (await cam.locator('#room-code').textContent())!.trim();
 }
 
-async function joinRoomAndConnect(view: import('@playwright/test').Page, relayParam: string, room: string): Promise<void> {
+async function joinRoomAndConnect(cam: import('@playwright/test').Page, view: import('@playwright/test').Page, relayParam: string, room: string): Promise<void> {
   await view.goto(`viewer.html?stun=0&debug=1&relay=${relayParam}`);
   await view.fill('#room-input', room);
   await view.click('#join-room-btn');
   await expect(view.locator('#camera-list button')).toHaveCount(1);
   await view.locator('#camera-list button').first().click();
+  await approvePending(cam);
   await view.waitForFunction(
     () => {
       const video = document.querySelector<HTMLVideoElement>('#remote');
@@ -47,7 +49,7 @@ test('coupure Wi-Fi du viewer → reconnexion automatique du flux', async ({ bro
   const view = await viewCtx.newPage();
 
   const room = await startCameraWithRelay(cam, relayParam);
-  await joinRoomAndConnect(view, relayParam, room);
+  await joinRoomAndConnect(cam, view, relayParam, room);
   expect(await peerState(view)).toBe('connected');
 
   await viewCtx.setOffline(true);

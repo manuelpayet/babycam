@@ -262,8 +262,10 @@ input[type='range'] {
   display: none;
 }
 
-/* Page d'appairage dédiée (vue plein écran #/pair) : seules ces sections restent visibles. */
-body.view-pair .page > *:not(.topbar):not(#status):not(#pairing):not(.controls) {
+/* Page d'appairage dédiée (vue plein écran #/pair) : seules ces sections restent visibles.
+   #pending-sec reste visible dans les deux vues : une demande d'accès peut arriver
+   aussi bien pendant l'appairage (vue #/pair) qu'après connexion (vue principale). */
+body.view-pair .page > *:not(.topbar):not(#status):not(#pairing):not(.controls):not(#pending-sec) {
   display: none;
 }
 

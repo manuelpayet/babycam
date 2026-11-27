@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { approvePending } from './pairing-helper';
 import { shot } from './helpers';
 import { killMockRelay, startMockRelay } from './mock-relay';
 
@@ -34,6 +35,7 @@ test('I3.6 salon (relais) : trickle ICE, tous les codecs vidéo offerts, panneau
   await view.goto(`viewer.html?stun=0&debug=1&relay=${relayParam}`);
   await view.fill('#room-input', room);
   await view.click('#join-room-btn');
+  await approvePending(cam);
   await view.waitForFunction(
     () => {
       const video = document.querySelector<HTMLVideoElement>('#remote');

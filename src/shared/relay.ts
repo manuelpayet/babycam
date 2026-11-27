@@ -1,9 +1,20 @@
+import type { DeviceAuth } from './device-auth';
+
 export type RelayRole = 'camera' | 'viewer';
 
 export interface PresenceCamera {
   id: string;
   name: string;
   ts: number;
+}
+
+// Requête d'accès reçue par la caméra : `approved` = la clé publique du viewer est
+// enregistrée côté caméra dans le relais (ré-approbation automatique, prouvée par
+// la signature vérifiée par le relais).
+export interface RequestInfo {
+  approved: boolean;
+  pubkey: string;
+  name: string;
 }
 
 export function newRoomCode(): string {
@@ -31,7 +42,7 @@ export class RelayClient {
   private ws: WebSocket | null = null;
   private attempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-  private join: { room: string; role: RelayRole; name: string } | null = null;
+  private join: { room: string; role: RelayRole; name: string; pubkey: string } | null = null;
   private autoReconnect = false;
   private presenceList: PresenceCamera[] = [];
   id = '';
@@ -40,9 +51,11 @@ export class RelayClient {
     return this.presenceList;
   }
   onPresence?: (cameras: PresenceCamera[]) => void;
-  onRequest?: (from: string) => void;
+  onRequest?: (from: string, req: RequestInfo) => void;
   onSignal?: (from: string, msg: unknown) => void;
   onCandidate?: (from: string, candidate: RTCIceCandidateInit) => void;
+  onRejected?: (reason: string) => void;
+  onRevoke?: (from: string) => void;
   onReconnecting?: (attempt: number, delayMs: number) => void;
 
   constructor(private url: string) {}
@@ -51,8 +64,8 @@ export class RelayClient {
     return this.ws ? this.ws.readyState : 3;
   }
 
-  connect(room: string, role: RelayRole, name: string, opts: { autoReconnect?: boolean } = {}): Promise<void> {
-    this.join = { room, role, name };
+  connect(room: string, role: RelayRole, name: string, opts: { autoReconnect?: boolean; pubkey?: string } = {}): Promise<void> {
+    this.join = { room, role, name, pubkey: opts.pubkey ?? '' };
     this.autoReconnect = opts.autoReconnect ?? false;
     return this.open();
   }
@@ -66,7 +79,7 @@ export class RelayClient {
       ws.onopen = () => {
         this.attempts = 0;
         settled = true;
-        this.send({ type: 'join', role: join.role, name: join.name });
+        this.send({ type: 'join', role: join.role, name: join.name, pubkey: join.pubkey });
         resolve();
       };
       ws.onerror = () => {
@@ -95,13 +108,23 @@ export class RelayClient {
             this.onPresence?.(this.presenceList);
             break;
           case 'request':
-            this.onRequest?.(m.from as string);
+            this.onRequest?.(m.from as string, {
+              approved: m.approved === true,
+              pubkey: String(m.pubkey ?? ''),
+              name: String(m.name ?? ''),
+            });
             break;
           case 'signal':
             this.onSignal?.(m.from as string, m.msg);
             break;
           case 'candidate':
             this.onCandidate?.(m.from as string, m.candidate as RTCIceCandidateInit);
+            break;
+          case 'rejected':
+            this.onRejected?.(String(m.reason ?? 'auth'));
+            break;
+          case 'revoke':
+            this.onRevoke?.(m.from as string);
             break;
         }
       };
@@ -122,8 +145,15 @@ export class RelayClient {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(m));
   }
 
-  request(to: string): void {
-    this.send({ type: 'request', to });
+  // Requête signée (preuve de possession de la clé privée de l'appareil) ; le relais
+  // vérifie la signature puis indique à la caméra si la clé publique est approuvée.
+  request(to: string, auth: DeviceAuth): void {
+    this.send({ type: 'request', to, pubkey: auth.pubkey, ts: auth.ts, sig: auth.sig });
+  }
+
+  // Révoque un viewer côté relais (sa clé publique est retirée des approvedDevices).
+  revoke(to: string): void {
+    this.send({ type: 'revoke', to });
   }
 
   signal(to: string, msg: unknown): void {
