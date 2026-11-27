@@ -22,9 +22,10 @@ const RFC = {
   plaintextB64: 'V2hlbiBJIGdyb3cgdXAsIEkgd2FudCB0byBiZSBhIHdhdGVybWVsb24',
 };
 
-// Paire VAPID générée pour ce dépôt (clé publique embarquée dans src/shared/push.ts).
-const VAPID_PUBLIC = 'BN6ibnuYU1YDqHLFzDGKS_v0RuOovO-KMff_1HIcSfrfRZ1RGhm-K34-RCj_kWi2xTrHNCBKoNG_pXzRene33rY';
-const VAPID_PRIVATE = '-gyzLqckWUj7Ai9mYynDJMUJy4HKl0Y2WG886DBAtg0';
+// Paire VAPID DE TEST UNIQUEMENT (générée pour les tests, sans aucun rapport avec la paire
+// de production : la clé privée de prod n'est jamais dans le code, c'est un secret wrangler).
+const VAPID_PUBLIC = 'BLAcehEbYz6w1CVGT8o652fIcC2Zbp0NvTx8l9xxm5j_h6s9JCD0PJTIFyU4S6XHOUXgIt40p32HEqqS1qLw5jo';
+const VAPID_PRIVATE = 'jhN7FQP-BeKBMe1xTsGmURt48aCGGslSWJkR92xArZY';
 
 function concat(...parts: Uint8Array[]): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));

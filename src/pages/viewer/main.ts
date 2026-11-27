@@ -10,6 +10,7 @@ import { playAlertSound, pushAlertHistory, showAlertBanner, vibrate } from '../.
 import { RelayClient, relayUrlFromLocation } from '../../shared/relay';
 import { addDiagLog, candidateAddress } from '../../shared/diag';
 import {
+  isIOS,
   pushSupported,
   subscribePush,
   subscriptionToPayload,
@@ -65,7 +66,8 @@ function sendPushSub(): void {
 
 async function registerPush(): Promise<void> {
   if (!pushSupported()) {
-    pushStatus.textContent = t('viewer.push.unsupported');
+    // iOS best effort : message clair si PWA non installée / iOS < 16.4
+    pushStatus.textContent = isIOS() ? t('viewer.push.ios') : t('viewer.push.unsupported');
     return;
   }
   pushBtn.disabled = true;
@@ -74,7 +76,7 @@ async function registerPush(): Promise<void> {
     const sub = await subscribePush(reg);
     const payload = sub ? subscriptionToPayload(sub) : null;
     if (!payload) {
-      pushStatus.textContent = t('viewer.push.denied');
+      pushStatus.textContent = isIOS() ? t('viewer.push.ios') : t('viewer.push.denied');
       return;
     }
     localStorage.setItem(PUSH_SUB_KEY, JSON.stringify(payload));

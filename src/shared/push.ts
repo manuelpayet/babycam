@@ -1,13 +1,15 @@
 // Notifications push (Web Push API) :
 // - côté page viewer : souscription via le service worker + envoi de la subscription au relais
 // - côté service worker (src/sw.ts) : réception de l'événement `push` et du clic sur la notification
-// La clé publique VAPID est embarquée ici ; la clé privée correspondante est un secret du relais
-// (voir README, `wrangler secret put VAPID_PRIVATE_KEY`). Paire générée par scripts/gen-vapid.mjs.
+// Seule la clé PUBLIQUE VAPID est embarquée ici ; la clé privée correspondante est un secret du
+// worker relay (jamais dans le code) : `cd relay && npx wrangler secret put VAPID_PRIVATE_KEY`.
+// Paire régénérable avec `npm run vapid` (scripts/gen-vapid.mjs) : mettre alors à jour
+// VAPID_PUBLIC_KEY ici ET dans relay/wrangler.toml.
 import { t } from './i18n';
 import type { AlertKind } from './webrtc';
 import { base64UrlDecode } from './webpush';
 
-export const VAPID_PUBLIC_KEY = 'BN6ibnuYU1YDqHLFzDGKS_v0RuOovO-KMff_1HIcSfrfRZ1RGhm-K34-RCj_kWi2xTrHNCBKoNG_pXzRene33rY';
+export const VAPID_PUBLIC_KEY = 'BOMF0I_YLIYcbos9QR_qNoDDtaV64fS2YjAr-uHo6OU42DVFXutYMlYCxEUPSTAG6inz2xMss_ii76pJVFo3kHQ';
 
 export function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
   return base64UrlDecode(base64);
@@ -130,6 +132,22 @@ export function pushSupported(): boolean {
     'PushManager' in window &&
     'Notification' in window
   );
+}
+
+// iOS (best effort) : Web Push n'y est supporté que depuis iOS 16.4, et uniquement pour une
+// PWA installée en mode standalone. On détecte ça pour afficher un message clair à la place.
+export function isIOS(): boolean {
+  return (
+    typeof navigator !== 'undefined' &&
+    /iphone|ipad|ipod/i.test(navigator.userAgent) &&
+    (window as unknown as { MSStream?: unknown }).MSStream === undefined
+  );
+}
+
+export function isStandalonePWA(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  if (window.matchMedia?.('(display-mode: standalone)').matches) return true;
+  return (navigator as Navigator & { standalone?: boolean }).standalone === true;
 }
 
 export interface PushSubscriptionPayload {

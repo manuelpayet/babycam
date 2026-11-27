@@ -1,11 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   VAPID_PUBLIC_KEY,
   buildNotification,
   encodePushPayload,
   handleNotificationClick,
   handlePushEvent,
+  isIOS,
+  isStandalonePWA,
   parsePushPayload,
+  pushSupported,
+  subscribePush,
+  subscriptionToPayload,
   urlBase64ToUint8Array,
   type ClientsLike,
   type NotificationLike,
@@ -141,5 +146,104 @@ describe('handleNotificationClick', () => {
     const clients = makeClients([]);
     await handleNotificationClick({ close: () => undefined }, clients, '/babycam/');
     expect(clients.opened).toEqual(['/babycam/viewer.html']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mocks de la Push API (navigator/window/Notification/PushManager stubés).
+describe('push côté page (mocks Push API)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function stubGlobals(opts: {
+    userAgent?: string;
+    permission?: NotificationPermission;
+    requestPermission?: () => Promise<NotificationPermission>;
+    withPushManager?: boolean;
+    standalone?: boolean;
+  }) {
+    vi.stubGlobal('navigator', {
+      userAgent: opts.userAgent ?? 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+      serviceWorker: {},
+      ...(opts.standalone !== undefined ? { standalone: opts.standalone } : {}),
+    });
+    const win: Record<string, unknown> = {
+      Notification: class {},
+      matchMedia: (q: string) => ({ matches: q.includes('standalone') && opts.standalone === true }),
+    };
+    if (opts.withPushManager !== false) win.PushManager = class {};
+    vi.stubGlobal('window', win);
+    vi.stubGlobal('Notification', {
+      permission: opts.permission ?? 'default',
+      requestPermission: opts.requestPermission ?? (async () => 'granted' as NotificationPermission),
+    });
+  }
+
+  const fakeSub = {
+    endpoint: 'https://push.example.com/fcm/send/abc',
+    toJSON: () => ({
+      endpoint: 'https://push.example.com/fcm/send/abc',
+      keys: { p256dh: 'BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8', auth: 'BTBZMqHH6r4Tts7J_aSIgg' },
+    }),
+  } as unknown as PushSubscription;
+
+  it('pushSupported : true avec SW + PushManager + Notification, false sinon', () => {
+    stubGlobals({});
+    expect(pushSupported()).toBe(true);
+    stubGlobals({ withPushManager: false });
+    expect(pushSupported()).toBe(false);
+  });
+
+  it('subscribePush : permission refusée → null, subscribe jamais appelé', async () => {
+    stubGlobals({ permission: 'denied', requestPermission: async () => 'denied' });
+    const subscribe = vi.fn();
+    const reg = { pushManager: { subscribe } } as unknown as ServiceWorkerRegistration;
+    expect(await subscribePush(reg)).toBeNull();
+    expect(subscribe).not.toHaveBeenCalled();
+  });
+
+  it('subscribePush : autorisée → subscribe(userVisibleOnly + clé publique VAPID 65 octets)', async () => {
+    stubGlobals({});
+    const subscribe = vi.fn(async (opts: PushSubscriptionOptionsInit) => {
+      void opts;
+      return fakeSub;
+    });
+    const reg = { pushManager: { subscribe } } as unknown as ServiceWorkerRegistration;
+    const sub = await subscribePush(reg);
+    expect(sub).toBe(fakeSub);
+    expect(subscribe).toHaveBeenCalledTimes(1);
+    const opts = subscribe.mock.calls[0][0] as { userVisibleOnly: boolean; applicationServerKey: Uint8Array };
+    expect(opts.userVisibleOnly).toBe(true);
+    expect(opts.applicationServerKey).toHaveLength(65);
+    expect(opts.applicationServerKey[0]).toBe(0x04);
+    expect(base64UrlEncode(opts.applicationServerKey)).toBe(VAPID_PUBLIC_KEY);
+  });
+
+  it('subscribePush : subscribe qui lève (push service indisponible) → null', async () => {
+    stubGlobals({});
+    const subscribe = vi.fn(async () => {
+      throw new Error('push service error');
+    });
+    const reg = { pushManager: { subscribe } } as unknown as ServiceWorkerRegistration;
+    expect(await subscribePush(reg)).toBeNull();
+  });
+
+  it('subscriptionToPayload : extrait endpoint + keys, null si keys absentes', () => {
+    expect(subscriptionToPayload(fakeSub)).toEqual({
+      endpoint: 'https://push.example.com/fcm/send/abc',
+      keys: { p256dh: 'BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8', auth: 'BTBZMqHH6r4Tts7J_aSIgg' },
+    });
+    const noKeys = { endpoint: 'https://x', toJSON: () => ({ endpoint: 'https://x' }) } as unknown as PushSubscription;
+    expect(subscriptionToPayload(noKeys)).toBeNull();
+  });
+
+  it('isIOS / isStandalonePWA : détection iPhone et mode standalone', () => {
+    stubGlobals({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15' });
+    expect(isIOS()).toBe(true);
+    stubGlobals({ userAgent: 'Mozilla/5.0 (X11; Linux x86_64) Chrome/120' });
+    expect(isIOS()).toBe(false);
+    stubGlobals({ standalone: true });
+    expect(isStandalonePWA()).toBe(true);
+    stubGlobals({ standalone: false });
+    expect(isStandalonePWA()).toBe(false);
   });
 });

@@ -49,17 +49,13 @@ Déploiement (une fois) :
 
 ```bash
 cd relay
-npx wrangler secret put VAPID_PRIVATE_KEY   # clé privée de la paire (voir ci-dessous)
+npx wrangler secret put VAPID_PRIVATE_KEY   # clé privée de la paire — JAMAIS dans le code
 npx wrangler deploy                          # à relancer après chaque modif de relay/
 ```
 
-La paire VAPID courante (démo, générée par `npm run vapid` — régénère-la pour un usage réel) :
+Convention VAPID : seule la clé **publique** est dans le code (`VAPID_PUBLIC_KEY` dans `src/shared/push.ts` et `relay/wrangler.toml`) ; la clé **privée** n'existe que comme secret du worker (`wrangler secret put VAPID_PRIVATE_KEY`) et en local dans `relay/.dev.vars` (gitignoré). `VAPID_SUBJECT` = `mailto:babycam@veille-cron.workers.dev` (dans `relay/wrangler.toml` [vars]). Pour (re)générer une paire : `npm run vapid` (`scripts/gen-vapid.mjs`) affiche la paire + les commandes, puis mettre à jour la clé publique dans les deux fichiers, poser la privée en secret, et redéployer le relais.
 
-- `VAPID_PUBLIC_KEY` = `BN6ibnuYU1YDqHLFzDGKS_v0RuOovO-KMff_1HIcSfrfRZ1RGhm-K34-RCj_kWi2xTrHNCBKoNG_pXzRene33rY` (dans `src/shared/push.ts` et `relay/wrangler.toml`)
-- `VAPID_PRIVATE_KEY` = `-gyzLqckWUj7Ai9mYynDJMUJy4HKl0Y2WG886DBAtg0` (à poser via `wrangler secret put`, ne pas committer)
-- `VAPID_SUBJECT` = `mailto:babycam@veille-cron.workers.dev` (dans `relay/wrangler.toml` [vars])
-
-Pour régénérer une paire : `npm run vapid`, puis mettre à jour la clé publique dans `src/shared/push.ts` + `relay/wrangler.toml`, poser la privée en secret, et redéployer le relais.
+iOS (best effort) : Safari iOS ≥ 16.4 pousse uniquement pour une PWA installée (bouton Partager → « Sur l'écran d'accueil ») ; sinon le viewer affiche un message clair et les alertes restent celles de la page ouverte (DataChannel).
 
 ## Méthodologie
 

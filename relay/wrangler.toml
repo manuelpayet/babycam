@@ -3,13 +3,13 @@ main = "src/index.ts"
 compatibility_date = "2025-06-01"
 
 [vars]
-# Notifications push (Web Push / VAPID) : la paire de clés est générée par scripts/gen-vapid.mjs.
-# La clé publique est aussi embarquée côté client (src/shared/push.ts VAPID_PUBLIC_KEY).
-VAPID_PUBLIC_KEY = "BN6ibnuYU1YDqHLFzDGKS_v0RuOovO-KMff_1HIcSfrfRZ1RGhm-K34-RCj_kWi2xTrHNCBKoNG_pXzRene33rY"
+# Notifications push (Web Push / VAPID) : la clé publique doit correspondre à la clé privée
+# posée en secret. Paire régénérable avec `npm run vapid` (scripts/gen-vapid.mjs) : mettre à jour
+# VAPID_PUBLIC_KEY ici ET dans src/shared/push.ts. La clé privée n'est JAMAIS dans le code.
+VAPID_PUBLIC_KEY = "BOMF0I_YLIYcbos9QR_qNoDDtaV64fS2YjAr-uHo6OU42DVFXutYMlYCxEUPSTAG6inz2xMss_ii76pJVFo3kHQ"
 VAPID_SUBJECT = "mailto:babycam@veille-cron.workers.dev"
 # VAPID_PRIVATE_KEY est un SECRET, à poser une fois via :
 #   npx wrangler secret put VAPID_PRIVATE_KEY
-# (valeur de démo pour cette paire : voir README, à régénérer pour un usage réel)
 
 [[durable_objects.bindings]]
 name = "ROOM"
