@@ -5,6 +5,8 @@ export interface MockRelay {
   wss: WebSocketServer;
   url: string;
   port: number;
+  // Trames brutes vues par le relais (pour vérifier qu'il ne voit que du chiffré).
+  seen: { urls: string[]; messages: string[] };
 }
 
 interface RelayClientInfo {
@@ -18,6 +20,7 @@ export function startMockRelay(port = 0): Promise<MockRelay> {
     const wss = new WebSocketServer({ port, host: '127.0.0.1' });
     wss.on('error', reject);
     const clients = new Map<WebSocket, RelayClientInfo>();
+    const seen = { urls: [] as string[], messages: [] as string[] };
     const broadcast = () => {
       const cameras = [...clients.values()]
         .filter((c) => c.role === 'camera')
@@ -25,9 +28,12 @@ export function startMockRelay(port = 0): Promise<MockRelay> {
       const text = JSON.stringify({ type: 'presence', cameras });
       for (const sock of clients.keys()) sock.send(text);
     };
-    wss.on('connection', (ws) => {
+    wss.on('connection', (ws, req) => {
+      seen.urls.push(req.url ?? '');
       ws.on('message', (data) => {
-        const m = JSON.parse(data.toString()) as Record<string, unknown>;
+        const text = data.toString();
+        seen.messages.push(text);
+        const m = JSON.parse(text) as Record<string, unknown>;
         const c = clients.get(ws);
         if (m.type === 'join') {
           const client: RelayClientInfo = { id: crypto.randomUUID(), role: m.role as string, name: String(m.name) };
@@ -47,7 +53,7 @@ export function startMockRelay(port = 0): Promise<MockRelay> {
     });
     wss.on('listening', () => {
       const addr = wss.address() as AddressInfo;
-      resolve({ wss, url: `ws://127.0.0.1:${addr.port}`, port: addr.port });
+      resolve({ wss, url: `ws://127.0.0.1:${addr.port}`, port: addr.port, seen });
     });
   });
 }

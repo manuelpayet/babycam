@@ -1,3 +1,5 @@
+import { decryptSignal, deriveRoomKey, encryptSignal, relayRoomId } from './signaling';
+
 export type RelayRole = 'camera' | 'viewer';
 
 export interface PresenceCamera {
@@ -34,6 +36,12 @@ export class RelayClient {
   private join: { room: string; role: RelayRole; name: string } | null = null;
   private autoReconnect = false;
   private presenceList: PresenceCamera[] = [];
+  // Chiffrement E2E de la signalisation : clé AES-GCM dérivée du code de salon.
+  private key: CryptoKey | null = null;
+  // Files FIFO : les messages chiffrés (émission) et déchiffrés (réception) sont
+  // traités dans l'ordre d'arrivée, le chiffrement WebCrypto étant asynchrone.
+  private sendQueue: Promise<void> = Promise.resolve();
+  private recvQueue: Promise<void> = Promise.resolve();
   id = '';
 
   get cameras(): PresenceCamera[] {
@@ -51,10 +59,14 @@ export class RelayClient {
     return this.ws ? this.ws.readyState : 3;
   }
 
-  connect(room: string, role: RelayRole, name: string, opts: { autoReconnect?: boolean } = {}): Promise<void> {
-    this.join = { room, role, name };
+  async connect(room: string, role: RelayRole, name: string, opts: { autoReconnect?: boolean } = {}): Promise<void> {
+    // E2EE : la clé est dérivée du code de salon et l'identifiant de salon envoyé au
+    // relais (?room=) est un hash du code — le relais ne voit que du chiffré et ne
+    // peut pas dériver la clé. La clé est dérivée une seule fois (reconnexions comprises).
+    this.key = await deriveRoomKey(room);
+    this.join = { room: await relayRoomId(room), role, name };
     this.autoReconnect = opts.autoReconnect ?? false;
-    return this.open();
+    await this.open();
   }
 
   private open(): Promise<void> {
@@ -98,10 +110,10 @@ export class RelayClient {
             this.onRequest?.(m.from as string);
             break;
           case 'signal':
-            this.onSignal?.(m.from as string, m.msg);
+            this.deliverDecrypted(m.from as string, m.msg, (from, msg) => this.onSignal?.(from, msg));
             break;
           case 'candidate':
-            this.onCandidate?.(m.from as string, m.candidate as RTCIceCandidateInit);
+            this.deliverDecrypted(m.from as string, m.candidate, (from, msg) => this.onCandidate?.(from, msg as RTCIceCandidateInit));
             break;
         }
       };
@@ -118,6 +130,27 @@ export class RelayClient {
     }, delay);
   }
 
+  private enqueueSend(job: () => Promise<void>): void {
+    this.sendQueue = this.sendQueue.then(job).catch(() => undefined);
+  }
+
+  // Déchiffre un payload de signalisation reçu avant de le remettre au handler ;
+  // les déchiffrements sont chaînés pour préserver l'ordre des messages.
+  private deliverDecrypted(from: string, payload: unknown, deliver: (from: string, msg: unknown) => void): void {
+    const key = this.key;
+    if (!key) {
+      deliver(from, payload);
+      return;
+    }
+    if (typeof payload !== 'string') return; // signalisation attendue chiffrée
+    this.recvQueue = this.recvQueue
+      .then(() => decryptSignal(key, payload))
+      .then((msg) => deliver(from, msg))
+      .catch(() => {
+        // code de salon différent ou trame altérée : message ignoré
+      });
+  }
+
   send(m: unknown): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(m));
   }
@@ -127,11 +160,25 @@ export class RelayClient {
   }
 
   signal(to: string, msg: unknown): void {
-    this.send({ type: 'signal', to, msg });
+    const key = this.key;
+    if (!key) {
+      this.send({ type: 'signal', to, msg });
+      return;
+    }
+    this.enqueueSend(async () => {
+      this.send({ type: 'signal', to, msg: await encryptSignal(key, msg) });
+    });
   }
 
   candidate(to: string, candidate: RTCIceCandidateInit): void {
-    this.send({ type: 'candidate', to, candidate });
+    const key = this.key;
+    if (!key) {
+      this.send({ type: 'candidate', to, candidate });
+      return;
+    }
+    this.enqueueSend(async () => {
+      this.send({ type: 'candidate', to, candidate: await encryptSignal(key, candidate) });
+    });
   }
 
   close(): void {
