@@ -241,4 +241,11 @@ export class ViewerPeer {
     }
     void this.pc.addIceCandidate(candidate).catch(() => undefined);
   }
+
+  close(): void {
+    this.dc?.close();
+    this.pc?.close();
+    this.dc = null;
+    this.pc = null;
+  }
 }

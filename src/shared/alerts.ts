@@ -42,10 +42,10 @@ export function showAlertBanner(banner: HTMLElement, kind: AlertKind): void {
   }, 5000);
 }
 
-export function pushAlertHistory(list: HTMLUListElement, kind: AlertKind, ts: number): void {
+export function pushAlertHistory(list: HTMLUListElement, kind: AlertKind, ts: number, source?: string): void {
   const li = document.createElement('li');
   const time = new Date(ts).toLocaleTimeString();
-  li.textContent = `${time} — ${alertText(kind)}`;
+  li.textContent = `${time} — ${source ? `${source} — ` : ''}${alertText(kind)}`;
   list.prepend(li);
   while (list.children.length > 20) list.lastElementChild?.remove();
 }
