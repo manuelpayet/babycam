@@ -26,9 +26,19 @@ export interface SettingsMessage {
   noiseThreshold: number;
   motionSens: number;
 }
-export type DataMessage = AlertMessage | HelloMessage | LevelMessage | SettingsMessage;
+export interface PingMessage {
+  type: 'ping';
+  ts: number;
+}
+export type DataMessage = AlertMessage | HelloMessage | LevelMessage | SettingsMessage | PingMessage;
 
 export const CHANNEL_LABEL = 'babycam';
+
+// Heartbeat applicatif sur le DataChannel : la caméra envoie un ping toutes les
+// HEARTBEAT_INTERVAL_MS, le viewer considère la caméra hors ligne si aucun ping
+// n'arrive pendant HEARTBEAT_TIMEOUT_MS (logique de staleness dans shared/heartbeat.ts).
+export const HEARTBEAT_INTERVAL_MS = 2_000;
+export const HEARTBEAT_TIMEOUT_MS = 5_000;
 
 export interface PeerInfo {
   id: string;
@@ -60,6 +70,7 @@ export interface PeerManagerOptions {
 export class CameraPeers {
   private peers = new Map<string, PeerEntry>();
   private lastRegen = new Map<string, number>();
+  private heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   onPeerChange?: () => void;
   onData?: (peerId: string, m: DataMessage) => void;
 
@@ -96,6 +107,8 @@ export class CameraPeers {
     const dc = pc.createDataChannel(CHANNEL_LABEL);
     entry.dc = dc;
     this.peers.set(id, entry);
+    dc.onopen = () => this.sendHeartbeat();
+    this.startHeartbeat();
     dc.onmessage = (ev) => {
       try {
         const m = JSON.parse(ev.data as string) as DataMessage;
@@ -156,12 +169,30 @@ export class CameraPeers {
     }
   }
 
+  private sendHeartbeat(): void {
+    this.sendToAll({ type: 'ping', ts: Date.now() });
+  }
+
+  startHeartbeat(): void {
+    if (this.heartbeatTimer !== undefined) return;
+    this.sendHeartbeat();
+    this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), HEARTBEAT_INTERVAL_MS);
+  }
+
+  stopHeartbeat(): void {
+    if (this.heartbeatTimer !== undefined) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = undefined;
+    }
+  }
+
   revoke(id: string): void {
     const p = this.peers.get(id);
     if (!p) return;
     p.dc.close();
     p.pc.close();
     this.peers.delete(id);
+    if (this.peers.size === 0) this.stopHeartbeat();
     this.onPeerChange?.();
   }
 }

@@ -5,6 +5,7 @@ import { QrScanner } from '../../shared/scanner';
 import { qs, setBuildBadge, Wizard, goView, initHashViews } from '../../shared/ui';
 import { registerPwa } from '../../shared/pwa';
 import { iceServersFromLocation, ViewerPeer, type DataMessage } from '../../shared/webrtc';
+import { heartbeatAgeMs, isHeartbeatStale, offlineSeconds } from '../../shared/heartbeat';
 import { thresholdToDbfs } from '../../shared/detection/noise';
 import { playAlertSound, pushAlertHistory, showAlertBanner, vibrate } from '../../shared/alerts';
 import { RelayClient, relayUrlFromLocation } from '../../shared/relay';
@@ -74,6 +75,35 @@ function setStatus(text: string): void {
   status.textContent = text;
 }
 
+// Heartbeat applicatif : la caméra envoie { type: 'ping' } sur le DataChannel ;
+// si aucun ping n'arrive pendant plus de HEARTBEAT_TIMEOUT_MS alors que le peer est
+// connecté, on affiche « caméra hors ligne depuis Xs » (màj chaque seconde), distinct
+// de « reconnexion en cours » qui couvre les états disconnected/failed du peer.
+let lastHeartbeatAt: number | null = null;
+let heartbeatOffline = false;
+
+function heartbeatOfflineText(elapsedMs: number): string {
+  return t('viewer.status.offline').replace('{s}', String(offlineSeconds(elapsedMs)));
+}
+
+function noteHeartbeat(): void {
+  lastHeartbeatAt = Date.now();
+  if (heartbeatOffline) {
+    heartbeatOffline = false;
+    if (peer?.pc?.connectionState === 'connected') setStatus(t('viewer.status.connected'));
+  }
+}
+
+setInterval(() => {
+  if (peer?.pc?.connectionState !== 'connected') return;
+  const now = Date.now();
+  const elapsed = heartbeatAgeMs(lastHeartbeatAt, now);
+  if (elapsed !== null && isHeartbeatStale(lastHeartbeatAt, now)) {
+    heartbeatOffline = true;
+    setStatus(heartbeatOfflineText(elapsed));
+  }
+}, 1000);
+
 let peer: ViewerPeer | null = null;
 const dataLog: DataMessage[] = [];
 let relay: RelayClient | null = null;
@@ -106,6 +136,8 @@ function renderDiag(): void {
 setInterval(renderDiag, 1000);
 
 function makePeer(iceServers: RTCIceServer[]): ViewerPeer {
+  lastHeartbeatAt = null;
+  heartbeatOffline = false;
   const p = new ViewerPeer(iceServers, viewerName.value.trim() || 'Viewer');
   p.onCandidate = (cand) => {
     if (relay && lastCameraFrom) relay.candidate(lastCameraFrom, cand);
@@ -116,6 +148,10 @@ function makePeer(iceServers: RTCIceServer[]): ViewerPeer {
     void remote.play().catch(() => undefined);
   };
   p.onData = (m) => {
+    if (m.type === 'ping') {
+      noteHeartbeat();
+      return;
+    }
     dataLog.push(m);
     if (m.type === 'alert') {
       showAlertBanner(alertBanner, m.kind);
@@ -126,10 +162,16 @@ function makePeer(iceServers: RTCIceServer[]): ViewerPeer {
       updateNoiseMeter(m.dbfs);
     }
   };
-  p.onOpen = () => sendSettings();
+  p.onOpen = () => {
+    lastHeartbeatAt = Date.now();
+    heartbeatOffline = false;
+    sendSettings();
+  };
   p.onState = (state) => {
     if (state === 'connected') {
       clearTimeout(reconnectTimer);
+      lastHeartbeatAt = Date.now();
+      heartbeatOffline = false;
       waitingText.textContent = t('viewer.status.connected');
       pairWizard.show(pairWizard.count);
       goView('main');
@@ -249,5 +291,6 @@ if (new URLSearchParams(location.search).get('debug') === '1') {
     getDataLog: () => dataLog,
     getRemoteSdp: () => peer?.pc?.remoteDescription?.sdp ?? null,
     getLastLevel: () => lastDbfs,
+    getHeartbeatAgeMs: () => heartbeatAgeMs(lastHeartbeatAt, Date.now()),
   };
 }

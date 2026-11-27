@@ -301,5 +301,7 @@ if (new URLSearchParams(location.search).get('debug') === '1') {
     getRoomCode: () => roomCodeEl.textContent ?? '',
     getNoiseThresholdDbfs: () => noiseDet?.thresholdDbfs ?? null,
     getMotionRatioThreshold: () => motionDet?.ratioThreshold ?? null,
+    startHeartbeat: () => peers?.startHeartbeat(),
+    stopHeartbeat: () => peers?.stopHeartbeat(),
   };
 }
