@@ -1,9 +1,28 @@
 import type { SignalMessage } from './signaling';
 
+export const DEFAULT_STUN_URL = 'stun:stun.l.google.com:19302';
+// TURN de secours pour les NAT symétriques (STUN insuffisant) : relais public OpenRelay.
+export const DEFAULT_TURN_URL = 'turn:openrelay.metered.ca:80';
+export const DEFAULT_TURN_USERNAME = 'openrelayproject';
+export const DEFAULT_TURN_CREDENTIAL = 'openrelayprojectsecret';
+
 export function iceServersFromLocation(): RTCIceServer[] {
   const params = new URLSearchParams(location.search);
+  // ?stun=0 : aucun serveur ICE (mode QR local, comportement historique).
   if (params.get('stun') === '0') return [];
-  return [{ urls: 'stun:stun.l.google.com:19302' }];
+  const servers: RTCIceServer[] = [{ urls: DEFAULT_STUN_URL }];
+  // ?turn=0 désactive le relais TURN ; ?turn=<url> le remplace (identifiants par défaut
+  // alors omis, sauf ?turnuser=/ ?turnpass= explicites).
+  if (params.get('turn') !== '0') {
+    const customUrl = params.get('turn');
+    const turn: RTCIceServer = { urls: customUrl ?? DEFAULT_TURN_URL };
+    const username = params.get('turnuser') ?? (customUrl ? undefined : DEFAULT_TURN_USERNAME);
+    const credential = params.get('turnpass') ?? (customUrl ? undefined : DEFAULT_TURN_CREDENTIAL);
+    if (username) turn.username = username;
+    if (credential) turn.credential = credential;
+    servers.push(turn);
+  }
+  return servers;
 }
 
 export type AlertKind = 'noise' | 'motion';
