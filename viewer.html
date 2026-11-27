@@ -20,7 +20,7 @@
       </header>
       <p id="status" class="status" data-i18n="viewer.status.idle">Non appairé</p>
       <div id="alert-banner" hidden></div>
-      <video id="remote" autoplay playsinline></video>
+      <div id="videos" class="videos"></div>
       <div class="controls">
         <button id="unmute-btn" class="btn" data-i18n="viewer.unmute">Activer le son</button>
         <button id="fullscreen-btn" class="btn" data-i18n="viewer.fullscreen">Plein écran</button>
@@ -51,6 +51,7 @@
           <label class="hint" data-i18n="viewer.roomLabel" for="room-input">Code de salon :</label>
           <input id="room-input" type="text" maxlength="6" placeholder="CODE" />
           <button id="join-room-btn" class="btn btn-primary" data-i18n="viewer.joinRoom">Rejoindre le salon</button>
+          <p class="hint" data-i18n="viewer.cameras">Caméras disponibles (plusieurs salons possibles) :</p>
           <ul id="camera-list"></ul>
         </div>
         <div class="wizard-pane" id="wiz-waiting" hidden>

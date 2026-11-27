@@ -100,6 +100,34 @@ video {
   object-fit: cover;
 }
 
+/* Mosaïque multi-caméras : une tuile par caméra surveillée. */
+.videos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 0.75rem;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.tile-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.tile-bar .tile-state {
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .controls {
   display: flex;
   flex-wrap: wrap;
